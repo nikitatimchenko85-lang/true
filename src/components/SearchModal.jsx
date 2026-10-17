@@ -3,10 +3,10 @@ import { store } from '../store.js'
 import { STATUSES, formatPhone, humanStamp } from '../lib.js'
 import Modal from './Modal.jsx'
 
-export default function SearchModal({ services, onClose, onPick }) {
+export default function SearchModal({ depts, onClose, onPick }) {
   const [q, setQ] = useState('')
   const [res, setRes] = useState(null)
-  const byId = Object.fromEntries(services.map((s) => [s.id, s]))
+  const byId = Object.fromEntries(depts.map((d) => [d.id, d]))
 
   useEffect(() => {
     if (q.trim().length < 2) return setRes(null)
@@ -21,7 +21,7 @@ export default function SearchModal({ services, onClose, onPick }) {
         autoFocus
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Имя, телефон, машина или госномер"
+        placeholder="Машина, номер, клиент или телефон"
       />
       {res && !res.length && <p className="muted">Ничего не найдено</p>}
       {res && (
@@ -29,12 +29,10 @@ export default function SearchModal({ services, onClose, onPick }) {
           {res.map((b) => (
             <li key={b.id} onClick={() => onPick(b)} style={{ '--c': byId[b.service_id]?.color || '#999' }}>
               <div>
-                <b>{b.client_name}</b> {b.phone && <span className="muted">{formatPhone(b.phone)}</span>}
+                <b>{b.car}</b> {b.client_name} {b.phone && <span className="muted">{formatPhone(b.phone)}</span>}
               </div>
               <div className="small">
-                {humanStamp(b.starts_at)} · {byId[b.service_id]?.name || b.service_id}
-                {b.car ? ` · ${b.car}` : ''}
-                {b.plate ? ` · ${b.plate}` : ''} · {STATUSES[b.status]?.label}
+                {humanStamp(b.starts_at)} · {byId[b.service_id]?.name || b.service_id} · {STATUSES[b.status]?.label}
               </div>
             </li>
           ))}

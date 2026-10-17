@@ -21,7 +21,7 @@ test('отменённые не блокируют, своя запись не �
 
 test('свободный пост', () => {
   const list = [b('1', 1, '2026-10-17T10:00', '2026-10-17T11:00')]
-  const svc = { id: 'tires', posts: 2 }
+  const svc = { id: 'tires', posts: [{}, {}] }
   assert.equal(freePost(list, svc, b(null, 0, '2026-10-17T10:00', '2026-10-17T11:00')), 2)
   list.push(b('2', 2, '2026-10-17T09:00', '2026-10-17T12:00'))
   assert.equal(freePost(list, svc, b(null, 0, '2026-10-17T10:00', '2026-10-17T11:00')), null)

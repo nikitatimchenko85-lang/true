@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { store } from './store.js'
-import { addDays, dateKey, humanDate, isBlocking, parseDate, stamp, today, weekday } from './lib.js'
+import { ConflictError, store } from './store.js'
+import {
+  addDays, computeEnd, dateKey, findConflict, humanDate, humanStamp, isBlocking, parseDate, stamp, today,
+  unionView, weekday, workMinutes,
+} from './lib.js'
 import Icon from './components/Icon.jsx'
 import Login from './components/Login.jsx'
+import WhoAmI from './components/WhoAmI.jsx'
 import DayGrid from './components/DayGrid.jsx'
 import DayList from './components/DayList.jsx'
 import BookingModal from './components/BookingModal.jsx'
 import SettingsModal from './components/SettingsModal.jsx'
 import SearchModal from './components/SearchModal.jsx'
+import Calculator from './components/Calculator.jsx'
 
 const pref = (k, fallback) => {
   try {
@@ -41,33 +46,26 @@ export default function App() {
 }
 
 function Main({ session }) {
+  // Дата у каждого своя: листание дней не мешает другим администраторам
   const [date, setDate] = useState(today())
-  const [services, setServices] = useState([])
-  const [settings, setSettings] = useState(null)
+  const [config, setConfig] = useState(null)
   const [bookings, setBookings] = useState([])
   const [error, setError] = useState('')
-  const [view, setView] = useState(() => pref('view', window.innerWidth < 700 ? 'list' : 'grid'))
-  const [hidden, setHidden] = useState(() => new Set(JSON.parse(pref('hiddenServices', '[]'))))
+  const [toast, setToast] = useState('')
+  const [view, setView] = useState(() => pref('view', 'grid'))
+  const [deptId, setDeptId] = useState(() => pref('dept', 'tires'))
   const [editing, setEditing] = useState(null)
-  const [showSettings, setShowSettings] = useState(false)
-  const [showSearch, setShowSearch] = useState(false)
+  const [panel, setPanel] = useState(null) // settings | search | calc
   const [me, setMe] = useState(() => pref('employee', ''))
 
   const week = weekStart(date)
-  const range = useMemo(() => {
-    // неделя + запас, чтобы видеть многодневные работы
-    return { from: stamp(addDays(week, -7), 0), to: stamp(addDays(week, 8), 0) }
-  }, [week, date])
+  // неделя + запас, чтобы видеть многодневные работы
+  const range = useMemo(() => ({ from: stamp(addDays(week, -7), 0), to: stamp(addDays(week, 8), 0) }), [week])
 
   const load = useCallback(async () => {
     try {
-      const [sv, st, bk] = await Promise.all([
-        store.listServices(),
-        store.getSettings(),
-        store.listBookings(range.from, range.to),
-      ])
-      setServices(sv)
-      setSettings(st)
+      const [cfg, bk] = await Promise.all([store.getConfig(), store.listBookings(range.from, range.to)])
+      setConfig(cfg)
       setBookings(bk)
       setError('')
     } catch (e) {
@@ -81,57 +79,83 @@ function Main({ session }) {
   }, [load])
 
   useEffect(() => setPref('view', view), [view])
-  useEffect(() => setPref('hiddenServices', JSON.stringify([...hidden])), [hidden])
+  useEffect(() => setPref('dept', deptId), [deptId])
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(''), 4000)
+    return () => clearTimeout(t)
+  }, [toast])
 
-  const activeServices = services.filter((s) => s.active !== false).sort((a, b) => a.sort - b.sort)
-  const visibleServices = activeServices.filter((s) => !hidden.has(s.id))
-  const employee = me || (store.mode === 'supabase' ? session.user?.email : '')
+  if (!config) return <div className="center muted">{error || 'Загрузка…'}</div>
 
-  const toggleService = (id) =>
-    setHidden((h) => {
-      const n = new Set(h)
-      n.has(id) ? n.delete(id) : n.add(id)
-      return n
-    })
+  const saveMe = (v) => {
+    setMe(v)
+    setPref('employee', v)
+  }
+  if (!me) return <WhoAmI admins={config.admins} onPick={saveMe} />
 
-  if (!settings) return <div className="center muted">{error || 'Загрузка…'}</div>
+  const allDepts = config.departments
+  const active = allDepts.filter((d) => d.active !== false)
+  const shown = deptId === 'all' ? active : active.filter((d) => d.id === deptId)
+  const depts = shown.length ? shown : active.slice(0, 1)
+  const gridView = depts.length === 1 ? depts[0] : unionView(depts)
+  const deptIds = new Set(depts.map((d) => d.id))
 
   const days = Array.from({ length: 7 }, (_, i) => addDays(week, i))
   const onDay = (d) => {
     const from = stamp(d, 0)
     const to = stamp(addDays(d, 1), 0)
-    return bookings.filter((b) => b.starts_at < to && b.ends_at > from && isBlocking(b))
+    return bookings.filter((b) => deptIds.has(b.service_id) && b.starts_at < to && b.ends_at > from)
   }
   const dayBookings = onDay(date)
-  const inWork = dayBookings.filter((b) => b.status === 'in_progress').length
-  const revenue = dayBookings
-    .filter((b) => b.starts_at.slice(0, 10) === date)
-    .reduce((sum, b) => sum + (Number(b.price) || 0), 0)
+  const live = dayBookings.filter(isBlocking)
+  const noShow = dayBookings.filter((b) => b.status === 'no_show').length
+  const totalPosts = depts.reduce((n, d) => n + d.posts.length, 0)
+  const now = new Date()
+  const nowStamp = stamp(today(), now.getHours() * 60 + now.getMinutes())
+  const busyNow = live.filter((b) => b.starts_at <= nowStamp && b.ends_at > nowStamp).length
 
-  const openNew = (preset = {}) =>
+  const openNew = (preset = {}) => {
+    const d = allDepts.find((x) => x.id === preset.service_id) || depts[0]
     setEditing({
-      service_id: preset.service_id || visibleServices[0]?.id || activeServices[0]?.id,
+      ...preset,
+      service_id: d.id,
       post: preset.post || 0,
       date: preset.date || date,
-      min: preset.min ?? Math.max(settings.open_min, nextSlot(settings, date)),
+      min: preset.min ?? nextSlot(d, preset.date || date),
     })
+  }
+
+  // Перетаскивание: та же длительность, новое время/пост
+  const move = async (b, to) => {
+    const d = allDepts.find((x) => x.id === b.service_id)
+    const starts_at = stamp(to.date, to.min)
+    const moved = { ...b, post: to.post, starts_at, ends_at: computeEnd(starts_at, workMinutes(b.starts_at, b.ends_at, d), d) }
+    const c = findConflict(bookings, moved)
+    if (c) return setToast(`Не перенесено: пост занят (${c.car}, ${humanStamp(c.starts_at)})`)
+    setBookings((list) => list.map((x) => (x.id === b.id ? moved : x)))
+    try {
+      await store.saveBooking(moved)
+      setToast(`${b.car} → ${d.posts[to.post - 1].name}, ${humanStamp(starts_at)}`)
+    } catch (e) {
+      setToast(e instanceof ConflictError ? 'Не перенесено: пост уже заняли' : 'Ошибка: ' + e.message)
+    }
+    load()
+  }
 
   const nav = [
-    { key: 'today', icon: 'home', label: 'Сегодня', act: () => setDate(today()) },
+    { key: 'today', icon: 'home', label: 'Сегодня', act: () => setDate(today()), desktop: true },
     { key: 'grid', icon: 'grid', label: 'Сетка', on: view === 'grid', act: () => setView('grid') },
     { key: 'list', icon: 'list', label: 'Список', on: view === 'list', act: () => setView('list') },
-    { key: 'search', icon: 'search', label: 'Поиск', act: () => setShowSearch(true) },
-    { key: 'settings', icon: 'settings', label: 'Настройки', act: () => setShowSettings(true) },
+    { key: 'search', icon: 'search', label: 'Поиск', act: () => setPanel('search') },
+    { key: 'calc', icon: 'calc', label: 'Калькулятор цен', act: () => setPanel('calc') },
+    { key: 'settings', icon: 'settings', label: 'Настройки', act: () => setPanel('settings') },
   ]
-  const name = me || (store.mode === 'supabase' ? session.user?.email?.split('@')[0] : '')
 
   return (
     <div className="app">
       <header className="topbar">
-        <div className="logo">
-          <span className="mark">{(settings.company || 'D')[0]}</span>
-          {settings.company}
-        </div>
+        <img className="logo" src="logo.png" alt={config.company} />
         <nav className="iconnav">
           {nav.map((n) => (
             <button key={n.key} className={`round ${n.on ? 'on' : ''}`} onClick={n.act} title={n.label} aria-label={n.label}>
@@ -147,49 +171,83 @@ function Main({ session }) {
       </header>
 
       {store.mode === 'local' && (
-        <div className="banner">
-          Демо-режим: записи сохраняются только в этом браузере. Для общей базы подключите Supabase (см. README).
-        </div>
+        <div className="banner">Демо-режим: записи видны только в этом браузере. Для общей базы подключите Supabase (см. README).</div>
       )}
       {error && <div className="banner error">{error}</div>}
 
       <section className="hero">
         <h1 className="greet">
           {greeting()},<br />
-          {name || 'команда'}
+          {me}
         </h1>
-        <button className="avatar" onClick={() => setShowSettings(true)} title="Ваше имя — в настройках">
-          {(name || '?').slice(0, 1).toUpperCase()}
+        <button className="avatar" onClick={() => setPanel('settings')} title="Сменить администратора">
+          {me.slice(0, 1).toUpperCase()}
         </button>
       </section>
 
       <section className="tiles">
-        <button className="tile lime cta" onClick={() => openNew()}>
+        <button className="tile accent cta" onClick={() => openNew()}>
           <span>
-            <b>Записать клиента</b>
-            <small>{inWork ? `Сейчас в работе: ${inWork}` : 'Выберите услугу и время'}</small>
+            <b>Записать</b>
+            <small>{depts.length === 1 ? depts[0].name : 'в любое подразделение'}</small>
           </span>
           <span className="go">
-            <Icon name="arrow" />
+            <Icon name="plus" />
           </span>
         </button>
         <div className="tile grey">
-          <b>{dayBookings.length}</b>
-          <small>{plural(dayBookings.length, 'запись', 'записи', 'записей')} на день</small>
+          <b>{live.length}</b>
+          <small>
+            {plural(live.length, 'запись', 'записи', 'записей')}
+            {noShow ? ` · не приехали: ${noShow}` : ''}
+          </small>
         </div>
         <div className="tile black">
-          <b>
-            <span className="star">★</span> {revenue.toLocaleString('ru-RU')} ₽
-          </b>
-          <small>по записям дня</small>
+          {date === today() ? (
+            <>
+              <b>
+                <span className="accent-text">{totalPosts - busyNow}</span> / {totalPosts}
+              </b>
+              <small>постов свободно сейчас</small>
+            </>
+          ) : (
+            <>
+              <b>{totalPosts}</b>
+              <small>{plural(totalPosts, 'пост', 'поста', 'постов')}</small>
+            </>
+          )}
         </div>
       </section>
+
+      <nav className="tabs">
+        {active.length > 1 && (
+          <button className={deptId === 'all' ? 'on' : ''} onClick={() => setDeptId('all')}>
+            Все
+          </button>
+        )}
+        {active.map((d) => (
+          <button
+            key={d.id}
+            className={deptId !== 'all' && depts[0].id === d.id ? 'on' : ''}
+            style={{ '--c': d.color }}
+            onClick={() => setDeptId(d.id)}
+          >
+            <i />
+            {d.name}
+          </button>
+        ))}
+      </nav>
 
       <section className="daybar">
         <h2>
           {weekday(date)}, {humanDate(date)}
         </h2>
         <div className="daynav">
+          {date !== today() && (
+            <button className="today-btn" onClick={() => setDate(today())}>
+              Сегодня
+            </button>
+          )}
           <button className="round sm" onClick={() => setDate(addDays(date, -1))} aria-label="Предыдущий день">
             <Icon name="left" />
           </button>
@@ -205,13 +263,9 @@ function Main({ session }) {
           <Icon name="left" />
         </button>
         {days.map((d) => {
-          const n = onDay(d).length
+          const n = onDay(d).filter(isBlocking).length
           return (
-            <button
-              key={d}
-              className={`day ${d === date ? 'selected' : ''} ${d === today() ? 'today' : ''}`}
-              onClick={() => setDate(d)}
-            >
+            <button key={d} className={`day ${d === date ? 'selected' : ''} ${d === today() ? 'today' : ''}`} onClick={() => setDate(d)}>
               <span className="wd">{weekday(d)}</span>
               <span className="dn">{parseDate(d).getDate()}</span>
               <span className="cnt">{n || ''}</span>
@@ -223,94 +277,76 @@ function Main({ session }) {
         </button>
       </nav>
 
-      <div className="chips">
-        {activeServices.map((s) => (
-          <button
-            key={s.id}
-            className={`chip ${hidden.has(s.id) ? 'off' : ''}`}
-            style={{ '--c': s.color }}
-            onClick={() => toggleService(s.id)}
-          >
-            <i />
-            {s.name}
-          </button>
-        ))}
-      </div>
-
       <main>
         {view === 'grid' ? (
           <DayGrid
             date={date}
-            services={visibleServices}
+            depts={depts}
             bookings={bookings}
-            settings={settings}
+            view={gridView}
             onCreate={openNew}
             onOpen={(b) => setEditing(b)}
+            onMove={move}
+            canMove={isBlocking}
           />
         ) : (
-          <DayList
-            date={date}
-            services={visibleServices}
-            allServices={services}
-            bookings={bookings}
-            settings={settings}
-            onOpen={(b) => setEditing(b)}
-            onCreate={openNew}
-          />
+          <DayList date={date} depts={depts} bookings={bookings} view={gridView} onOpen={(b) => setEditing(b)} onCreate={openNew} />
         )}
       </main>
 
       <nav className="bottomnav">
-        {nav.map((n) => (
-          <button key={n.key} className={`round ${n.on ? 'on' : ''}`} onClick={n.act} aria-label={n.label}>
-            <Icon name={n.icon} />
-          </button>
-        ))}
+        {nav
+          .filter((n) => !n.desktop)
+          .map((n) => (
+            <button key={n.key} className={`round ${n.on ? 'on' : ''}`} onClick={n.act} aria-label={n.label}>
+              <Icon name={n.icon} />
+            </button>
+          ))}
       </nav>
+
+      {toast && <div className="toast">{toast}</div>}
 
       {editing && (
         <BookingModal
+          key={editing.id || `${editing.service_id}-${editing.date}-${editing.min}`}
           initial={editing}
-          services={activeServices}
-          allServices={services}
-          settings={settings}
+          depts={active}
+          allDepts={allDepts}
           bookings={bookings}
-          employee={employee}
+          employee={me}
           onClose={() => setEditing(null)}
           onSaved={(b) => {
             setEditing(null)
             setDate(b.starts_at.slice(0, 10))
             load()
           }}
+          onChain={openNew}
         />
       )}
-      {showSettings && (
+      {panel === 'settings' && (
         <SettingsModal
-          services={services}
-          settings={settings}
+          config={config}
           me={me}
-          onMe={(v) => {
-            setMe(v)
-            setPref('employee', v)
-          }}
-          onClose={() => setShowSettings(false)}
+          onMe={saveMe}
+          onClose={() => setPanel(null)}
           onSaved={() => {
-            setShowSettings(false)
+            setPanel(null)
             load()
           }}
         />
       )}
-      {showSearch && (
+      {panel === 'search' && (
         <SearchModal
-          services={services}
-          onClose={() => setShowSearch(false)}
+          depts={allDepts}
+          onClose={() => setPanel(null)}
           onPick={(b) => {
-            setShowSearch(false)
+            setPanel(null)
             setDate(b.starts_at.slice(0, 10))
             setEditing(b)
           }}
         />
       )}
+      {panel === 'calc' && <Calculator onClose={() => setPanel(null)} />}
     </div>
   )
 }
@@ -332,10 +368,10 @@ function plural(n, one, few, many) {
 }
 
 // Ближайший слот после текущего времени (для сегодняшнего дня)
-function nextSlot(settings, date) {
-  if (date !== dateKey(new Date())) return settings.open_min
+function nextSlot(dept, date) {
+  if (date !== dateKey(new Date())) return dept.open_min
   const now = new Date()
   const m = now.getHours() * 60 + now.getMinutes()
-  const slot = Math.ceil(m / settings.step) * settings.step
-  return Math.min(slot, settings.close_min - settings.step)
+  const slot = Math.ceil(m / dept.step) * dept.step
+  return Math.max(dept.open_min, Math.min(slot, dept.close_min - dept.step))
 }
