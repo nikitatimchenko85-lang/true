@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { store } from '../store.js'
-import { RADII, fromMin, uid } from '../lib.js'
-import { PERMS, ROLES, can, defaultRoles, rolePerms } from '../access.js'
+import { RADII, fromMin, tagsFor, uid } from '../lib.js'
+import { PERMS, ROLES, can, rolePerms } from '../access.js'
 import { DEFAULT_PRICELISTS, PRICE_CLASSES } from '../prices.js'
 import { download, parsePricelist, pricelistCsv } from '../exports.js'
 import { parseCsv, rowsToBookings } from '../importCsv.js'
@@ -15,7 +15,6 @@ const textToList = (t) => t.split(',').map((x) => x.trim()).filter(Boolean)
 const TABS = [
   ['depts', 'Подразделения', 'settings'],
   ['users', 'Пользователи', 'users'],
-  ['roles', 'Права ролей', 'users'],
   ['prices', 'Прайс-листы', 'pricelists'],
   ['import', 'Импорт', 'settings'],
 ]
@@ -75,7 +74,6 @@ export default function SettingsModal({ config, user, onClose, onSaved }) {
         <form className="form" onSubmit={save}>
           {tab === 'depts' && <DeptsTab cfg={cfg} setCfg={setCfg} />}
           {tab === 'users' && <UsersTab cfg={cfg} setCfg={setCfg} me={user} />}
-          {tab === 'roles' && <RolesTab cfg={cfg} setCfg={setCfg} />}
           {tab === 'prices' && <PricesTab cfg={cfg} setCfg={setCfg} />}
           {error && <div className="err">{error}</div>}
           <div className="buttons sticky">
@@ -187,7 +185,11 @@ function DeptsTab({ cfg, setCfg }) {
               <p className="muted small">Убирать можно только последние посты: записи привязаны к номеру поста.</p>
               <label>
                 Виды работ (через запятую)
-                <textarea rows={2} value={listToText(d.works)} onChange={(e) => updDept(i, { works: textToList(e.target.value) })} />
+                <textarea rows={2} defaultValue={listToText(d.works)} onBlur={(e) => updDept(i, { works: textToList(e.target.value) })} />
+              </label>
+              <label>
+                Быстрые пометки под госномером (через запятую)
+                <textarea rows={2} defaultValue={listToText(tagsFor(d))} onBlur={(e) => updDept(i, { tags: textToList(e.target.value) })} />
               </label>
               <label className="check">
                 <input type="checkbox" checked={!!d.tire_fields} onChange={(e) => updDept(i, { tire_fields: e.target.checked })} />
@@ -320,64 +322,6 @@ function UsersTab({ cfg, setCfg, me }) {
         Пока база Supabase не подключена, PIN-коды и права проверяются в браузере: это защита от случайных действий, а
         не от взлома.
       </p>
-    </>
-  )
-}
-
-/* ---------- Права ролей ---------- */
-
-function RolesTab({ cfg, setCfg }) {
-  const roles = ['owner', 'admin', 'master']
-  const toggle = (role, perm) => {
-    const cur = rolePerms(role, cfg.roles)
-    const next = cur.includes(perm) ? cur.filter((x) => x !== perm) : [...cur, perm]
-    setCfg((c) => ({ ...c, roles: { ...c.roles, [role]: next } }))
-  }
-  const own = cfg.users.filter((u) => u.role !== 'owner' && u.perms)
-  return (
-    <>
-      <p className="muted small">
-        Что может каждая роль. Изменения действуют на всех пользователей с этой ролью, кроме тех, кому права настроены
-        вручную во вкладке «Пользователи».
-      </p>
-      <div className="rtable-wrap">
-        <table className="rtable roles">
-          <thead>
-            <tr>
-              <th />
-              {roles.map((r) => (
-                <th key={r}>
-                  <span className="full">{ROLES[r].label}</span>
-                  <span className="short">{ROLES[r].short}</span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {PERMS.map(([k, label]) => (
-              <tr key={k}>
-                <td>{label}</td>
-                {roles.map((r) => (
-                  <td key={r}>
-                    <input
-                      type="checkbox"
-                      checked={r === 'owner' || rolePerms(r, cfg.roles).includes(k)}
-                      disabled={r === 'owner'}
-                      onChange={() => toggle(r, k)}
-                      aria-label={`${ROLES[r].label}: ${label}`}
-                    />
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="muted small">Руководителю доступно всё, чтобы нельзя было случайно закрыть себе настройки.</p>
-      {own.length > 0 && <p className="muted small">Права настроены вручную: {own.map((u) => u.name).join(', ')}.</p>}
-      <div className="presets">
-        <button type="button" onClick={() => setCfg((c) => ({ ...c, roles: defaultRoles() }))}>Вернуть стандартные права</button>
-      </div>
     </>
   )
 }

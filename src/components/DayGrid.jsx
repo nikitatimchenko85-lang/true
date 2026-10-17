@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { STATUSES, clipToDay, fromMin, humanStamp, today } from '../lib.js'
 import { rub } from '../prices.js'
+import { haptic } from '../haptics.js'
 
 const MAX_PX = 1.6 // пикселей на минуту — самый крупный масштаб
 const HEAD = 72 // высота шапки сетки: подразделение + посты
@@ -17,7 +18,7 @@ const readPx = () => {
 // Сетка дня: колонки — посты выбранных подразделений.
 // Запись можно перетащить на другое время или пост того же подразделения
 // (мышью сразу, на телефоне — удержать палец).
-export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen, onMove, canMove }) {
+export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen, onMove, canMove, onPast }) {
   const { open_min, close_min, step } = view
   const wrapRef = useRef(null)
 
@@ -112,6 +113,11 @@ export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen,
 
   const columns = depts.flatMap((d) => d.posts.map((p, i) => ({ dept: d, post: i + 1, info: p })))
 
+  // На телефоне первое касание выделяет окно, второе — открывает запись
+  const [pick, setPick] = useState(null) // { key, min, dur }
+  const touch = useRef(false)
+  useEffect(() => setPick(null), [date, depts.length])
+
   useEffect(() => () => dragRef.current?.cleanup?.(), [])
 
   if (!depts.length) return <div className="empty">Выберите подразделение.</div>
@@ -121,9 +127,23 @@ export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen,
   const lines = []
   for (let m = open_min; m < close_min; m += step) lines.push(m)
 
+  // Прошедшее время: записывать нельзя (текущий слот ещё можно)
+  const td = today()
+  const pastUntil = date < td ? close_min : date > td ? open_min : Math.floor(nowMin / step) * step
+
   const clickColumn = (e, col) => {
     if (e.target !== e.currentTarget || suppressClick.current) return
     const min = open_min + Math.floor(e.nativeEvent.offsetY / PX / step) * step
+    if (min < pastUntil) {
+      setPick(null)
+      return onPast?.()
+    }
+    const key = col.dept.id + col.post
+    if (touch.current && !(pick?.key === key && pick.min === min)) {
+      haptic('select')
+      return setPick({ key, min, dur: col.info.duration || step })
+    }
+    setPick(null)
     onCreate({ service_id: col.dept.id, post: col.post, date, min })
   }
 
@@ -152,7 +172,7 @@ export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen,
     const blockScroll = (ev) => active && ev.preventDefault()
     const activate = () => {
       active = true
-      navigator.vibrate?.(15)
+      haptic('select')
       document.addEventListener('touchmove', blockScroll, { passive: false })
       document.body.classList.add('dragging')
       update(startX, startY)
@@ -238,6 +258,7 @@ export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen,
               data-col={ci}
               className="col"
               style={{ height, '--c': col.dept.color }}
+              onPointerDown={(e) => (touch.current = e.pointerType !== 'mouse')}
               onClick={(e) => clickColumn(e, col)}
               title="Нажмите на свободное место, чтобы записать"
             >
@@ -247,6 +268,7 @@ export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen,
               {outside.map((o) => (
                 <div key={o.top} className="closed" style={{ top: o.top * PX, height: o.h * PX }} />
               ))}
+              {pastUntil > open_min && <div className="past" style={{ top: 0, height: (Math.min(pastUntil, close_min) - open_min) * PX }} />}
               {date === today() && nowMin > open_min && nowMin < close_min && (
                 <div className="now" style={{ top: (nowMin - open_min) * PX }} />
               )}
@@ -283,6 +305,20 @@ export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen,
                     </button>
                   )
                 })}
+              {pick?.key === key && (
+                <button
+                  type="button"
+                  className="pick"
+                  style={{ top: (pick.min - open_min) * PX, height: Math.max(Math.min(pick.dur, close_min - pick.min) * PX - 2, 30) }}
+                  onClick={() => {
+                    setPick(null)
+                    onCreate({ service_id: col.dept.id, post: col.post, date, min: pick.min })
+                  }}
+                >
+                  <b>+ {fromMin(pick.min)}</b>
+                  <small>нажмите ещё раз</small>
+                </button>
+              )}
               {drag && drag.colKey === key && (
                 <div
                   className="ghost"
