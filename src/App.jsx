@@ -16,6 +16,9 @@ import SettingsModal from './components/SettingsModal.jsx'
 import SearchModal from './components/SearchModal.jsx'
 import Calculator from './components/Calculator.jsx'
 import ReportsModal from './components/ReportsModal.jsx'
+import JournalModal from './components/JournalModal.jsx'
+import VersionsModal from './components/VersionsModal.jsx'
+import { CHANGELOG, VERSION } from './changelog.js'
 
 const pref = (k, fallback) => {
   try {
@@ -55,10 +58,11 @@ function Main({ session }) {
   const [bookings, setBookings] = useState([])
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
+  const [seenVersion, setSeenVersion] = useState(() => pref('seen.version', ''))
   const [view, setView] = useState(() => pref('view', 'grid'))
   const [deptId, setDeptId] = useState(() => pref('dept', 'tires'))
   const [editing, setEditing] = useState(null)
-  const [panel, setPanel] = useState(null) // settings | search | calc | reports
+  const [panel, setPanel] = useState(null) // settings | search | calc | reports | journal | versions
   // Кто работает: вход по PIN, экран блокируется после простоя
   const [userId, setUserId] = useState(() => pref('pin.user', ''))
   const [unlocked, setUnlocked] = useState(() => Date.now() < Number(pref('pin.until', 0)))
@@ -121,13 +125,17 @@ function Main({ session }) {
         lastId={userId}
         onLogin={(u) => {
           setUserId(u.id)
+          // повторные входы того же сотрудника в течение часа (после автоблокировки) в журнал не пишем
+          const [lastId, lastAt] = pref('log.login', '').split(':')
+          if (lastId !== u.id || Date.now() - Number(lastAt) > 3600_000) store.addLog({ user_name: u.name, action: 'login' })
+          setPref('log.login', `${u.id}:${Date.now()}`)
           setPref('pin.user', u.id)
           setPref('pin.until', Date.now() + 60_000)
           setUnlocked(true)
         }}
         onSetPin={async (u, pin) => {
           const fresh = await store.getConfig()
-          await store.saveConfig({ ...fresh, users: fresh.users.map((x) => (x.id === u.id ? { ...x, pin } : x)) })
+          await store.saveConfig({ ...fresh, users: fresh.users.map((x) => (x.id === u.id ? { ...x, pin } : x)) }, u.name, 'pin', u.name)
           await load()
         }}
       />
@@ -142,6 +150,16 @@ function Main({ session }) {
   const canBook = can(user, 'book')
   const canSettings = ['settings', 'users', 'pricelists'].some((p) => can(user, p))
   const canReports = can(user, 'reports') || can(user, 'export')
+  const canJournal = can(user, 'journal')
+  const newVersion = seenVersion !== VERSION
+  const markSeen = () => {
+    setPref('seen.version', VERSION)
+    setSeenVersion(VERSION)
+  }
+  const openVersions = () => {
+    markSeen()
+    setPanel('versions')
+  }
 
   const allDepts = config.departments
   const active = allDepts.filter((d) => d.active !== false && deptAllowed(user, d.id))
@@ -201,7 +219,7 @@ function Main({ session }) {
     if (c) return haptic('error'), setToast(`Не перенесено: пост занят (${c.car}, ${humanStamp(c.starts_at)})`)
     setBookings((list) => list.map((x) => (x.id === b.id ? moved : x)))
     try {
-      await store.saveBooking(moved)
+      await store.saveBooking(moved, user.name)
       haptic('success')
       setToast(`${b.car} → ${d.posts[to.post - 1].name}, ${humanStamp(starts_at)}`)
     } catch (e) {
@@ -217,6 +235,7 @@ function Main({ session }) {
     { key: 'search', icon: 'search', label: 'Поиск', act: () => setPanel('search') },
     { key: 'calc', icon: 'calc', label: 'Калькулятор цен', act: () => setPanel('calc') },
     canReports && { key: 'reports', icon: 'chart', label: 'Отчёты и выгрузки', act: () => setPanel('reports') },
+    canJournal && { key: 'journal', icon: 'journal', label: 'Журнал', act: () => setPanel('journal'), desktop: true },
     canSettings && { key: 'settings', icon: 'settings', label: 'Настройки', act: () => setPanel('settings') },
   ].filter(Boolean)
 
@@ -245,6 +264,19 @@ function Main({ session }) {
         <div className="banner">Демо-режим: записи видны только в этом браузере. Для общей базы подключите Supabase (см. README).</div>
       )}
       {error && <div className="banner error">{error}</div>}
+      {newVersion && (
+        <div className="banner update">
+          <span>
+            Обновление {VERSION}: {CHANGELOG[0].title.toLowerCase()}
+          </span>
+          <button type="button" onClick={openVersions}>
+            Что нового
+          </button>
+          <button type="button" className="round sm" aria-label="Скрыть" onClick={markSeen}>
+            <Icon name="close" size={16} />
+          </button>
+        </div>
+      )}
 
       <section className="hero">
         <h1 className="greet" style={{ '--len': Math.max(greeting().length + 1, user.name.length) }}>
@@ -373,6 +405,17 @@ function Main({ session }) {
         )}
       </main>
 
+      <footer className="appfoot">
+        {canJournal && (
+          <button type="button" className="link" onClick={() => setPanel('journal')}>
+            Журнал действий
+          </button>
+        )}
+        <button type="button" className="link" onClick={openVersions}>
+          Версия {VERSION} · история обновлений
+        </button>
+      </footer>
+
       <nav className="bottomnav">
         {nav
           .filter((n) => !n.desktop)
@@ -441,6 +484,8 @@ function Main({ session }) {
           }
         />
       )}
+      {panel === 'journal' && <JournalModal depts={allDepts} onClose={() => setPanel(null)} />}
+      {panel === 'versions' && <VersionsModal onClose={() => setPanel(null)} />}
       {panel === 'reports' && (
         <ReportsModal
           depts={active}

@@ -4,6 +4,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { findConflict, normStamp, uid } from './lib.js'
 import { withDefaults } from './config.js'
+import { bookingEntry, configNote } from './journal.js'
 
 export class ConflictError extends Error {
   constructor(booking) {
@@ -21,11 +22,19 @@ const BOOKING_FIELDS = [
 ]
 
 const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => k in obj).map((k) => [k, obj[k]]))
+const LOG_LIMIT = 5000 // сколько последних действий хранить в браузере
+
+// Журнал не должен ломать сохранение: ошибки записи в журнал только в консоль
+const quiet = (p) => Promise.resolve(p).catch((e) => console.warn('Журнал:', e?.message || e))
+
+// Настройки, которые сохраняют вместе с журналом: by — кто, action — settings или pin
+const configEntry = (by, prev, next, action = 'settings', note) =>
+  by && { user_name: by, action, note: note ?? configNote(prev, next) }
 
 /* ---------------- localStorage ---------------- */
 
 function createLocalStore() {
-  const KEY = { bookings: 'db.bookings', config: 'db.config' }
+  const KEY = { bookings: 'db.bookings', config: 'db.config', log: 'db.log' }
   const read = (k, fallback) => {
     try {
       const v = JSON.parse(localStorage.getItem(k))
@@ -68,20 +77,35 @@ function createLocalStore() {
         .sort((a, b) => (a.starts_at < b.starts_at ? 1 : -1))
         .slice(0, 50)
     },
-    async saveBooking(b) {
+    async saveBooking(b, by) {
       const all = read(KEY.bookings, [])
       const conflict = findConflict(all, b)
       if (conflict) throw new ConflictError(conflict)
       const now = new Date().toISOString()
-      if (b.id) {
-        write(KEY.bookings, all.map((x) => (x.id === b.id ? { ...x, ...b, updated_at: now } : x)))
-        return b
+      const prev = b.id && all.find((x) => x.id === b.id)
+      let saved = b
+      if (b.id) write(KEY.bookings, all.map((x) => (x.id === b.id ? { ...x, ...b, updated_at: now } : x)))
+      else {
+        saved = { ...b, id: uid(), created_at: now, updated_at: now }
+        write(KEY.bookings, [...all, saved])
       }
-      const created = { ...b, id: uid(), created_at: now, updated_at: now }
-      write(KEY.bookings, [...all, created])
-      return created
+      if (by) await this.addLog(bookingEntry(by, prev, saved))
+      return saved
     },
-    async importBookings(list) {
+    async addLog(e) {
+      if (!e) return
+      const list = read(KEY.log, [])
+      list.push({ ...e, id: uid(), at: new Date().toISOString() })
+      // без emit: журнал не должен перезагружать сетку
+      await quiet(new Promise((ok) => ok(localStorage.setItem(KEY.log, JSON.stringify(list.slice(-LOG_LIMIT))))))
+    },
+    async listLog({ from, to, bookingId, limit = 500 } = {}) {
+      return read(KEY.log, [])
+        .filter((e) => (!bookingId || e.booking_id === bookingId) && (!from || e.at >= from) && (!to || e.at < to))
+        .reverse()
+        .slice(0, limit)
+    },
+    async importBookings(list, by) {
       const all = read(KEY.bookings, [])
       const now = new Date().toISOString()
       let added = 0
@@ -94,13 +118,16 @@ function createLocalStore() {
         }
       }
       write(KEY.bookings, all)
+      if (by && added) await this.addLog({ user_name: by, action: 'import', note: `${added} шт.` })
       return { added, skipped }
     },
     async getConfig() {
       return withDefaults(read(KEY.config, null))
     },
-    async saveConfig(cfg) {
+    async saveConfig(cfg, by, action, note) {
+      const prev = read(KEY.config, null)
       write(KEY.config, cfg)
+      if (by) await this.addLog(configEntry(by, withDefaults(prev), cfg, action, note))
     },
     subscribe(fn) {
       listeners.add(fn)
@@ -156,16 +183,29 @@ function createSupabaseStore() {
       )
       return data.map(norm)
     },
-    async saveBooking(b) {
+    async saveBooking(b, by) {
       const row = pick(b, BOOKING_FIELDS)
+      const prev = by && b.id ? (await sb.from('bookings').select('*').eq('id', b.id).maybeSingle()).data : null
       const res = b.id
         ? await sb.from('bookings').update({ ...row, updated_at: new Date().toISOString() }).eq('id', b.id).select().single()
         : await sb.from('bookings').insert(row).select().single()
       // 23P01 — нарушение ограничения "нет пересечений" в базе
       if (res.error?.code === '23P01') throw new ConflictError(null)
-      return norm(check(res))
+      const saved = norm(check(res))
+      if (by) await this.addLog(bookingEntry(by, prev && norm(prev), saved))
+      return saved
     },
-    async importBookings(list) {
+    async addLog(e) {
+      if (e) await quiet(sb.from('activity_log').insert(e).then(check))
+    },
+    async listLog({ from, to, bookingId, limit = 500 } = {}) {
+      let q = sb.from('activity_log').select('*').order('at', { ascending: false }).limit(limit)
+      if (bookingId) q = q.eq('booking_id', bookingId)
+      if (from) q = q.gte('at', from)
+      if (to) q = q.lt('at', to)
+      return check(await q)
+    },
+    async importBookings(list, by) {
       let added = 0
       const skipped = []
       // По одной, чтобы пересечения отсеялись базой и не сорвали весь импорт
@@ -175,14 +215,17 @@ function createSupabaseStore() {
         else if (res.error) throw res.error
         else added++
       }
+      if (by && added) await this.addLog({ user_name: by, action: 'import', note: `${added} шт.` })
       return { added, skipped }
     },
     async getConfig() {
       const data = check(await sb.from('app_settings').select('value').eq('id', 1).maybeSingle())
       return withDefaults(data?.value)
     },
-    async saveConfig(cfg) {
+    async saveConfig(cfg, by, action, note) {
+      const prev = by && (await this.getConfig())
       check(await sb.from('app_settings').upsert({ id: 1, value: cfg }))
+      if (by) await this.addLog(configEntry(by, prev, cfg, action, note))
     },
     subscribe(fn) {
       const ch = sb

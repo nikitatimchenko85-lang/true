@@ -4,7 +4,7 @@ import { rub } from '../prices.js'
 import { haptic } from '../haptics.js'
 
 const MAX_PX = 1.6 // пикселей на минуту — самый крупный масштаб
-const HEAD = 72 // высота шапки сетки: подразделение + посты
+const HEAD = 84 // высота шапки сетки: подразделение + посты
 const LONG_PRESS = 350
 
 const readPx = () => {
@@ -118,6 +118,9 @@ export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen,
   const touch = useRef(false)
   useEffect(() => setPick(null), [date, depts.length])
 
+  // Мышь: подсвечиваем ячейку шага (полчаса) под курсором
+  const [hover, setHover] = useState(null) // { key, min }
+
   useEffect(() => () => dragRef.current?.cleanup?.(), [])
 
   if (!depts.length) return <div className="empty">Выберите подразделение.</div>
@@ -145,6 +148,15 @@ export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen,
     }
     setPick(null)
     onCreate({ service_id: col.dept.id, post: col.post, date, min })
+  }
+
+  const hoverColumn = (e, col) => {
+    if (e.pointerType !== 'mouse' || drag) return
+    const free = e.target === e.currentTarget
+    const min = open_min + Math.floor((e.clientY - e.currentTarget.getBoundingClientRect().top) / PX / step) * step
+    const key = col.dept.id + col.post
+    const next = free && min >= pastUntil && min < close_min ? { key, min } : null
+    if (next?.key !== hover?.key || next?.min !== hover?.min) setHover(next)
   }
 
   // ---------- перетаскивание ----------
@@ -233,8 +245,8 @@ export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen,
         <div className="corner sub" />
         {columns.map((c) => (
           <div key={c.dept.id + c.post} className="post-head" title={c.info.entity ? `Юрлицо: ${c.info.entity}` : ''}>
-            {c.info.name}
-            {c.info.banned && <span className="ban"> · без {c.info.banned}</span>}
+            <span>{c.info.name}</span>
+            {c.info.banned && <span className="ban">без {c.info.banned}</span>}
           </div>
         ))}
 
@@ -260,7 +272,8 @@ export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen,
               style={{ height, '--c': col.dept.color }}
               onPointerDown={(e) => (touch.current = e.pointerType !== 'mouse')}
               onClick={(e) => clickColumn(e, col)}
-              title="Нажмите на свободное место, чтобы записать"
+              onPointerMove={(e) => hoverColumn(e, col)}
+              onPointerLeave={() => setHover(null)}
             >
               {lines.filter((m) => PX >= 0.9 || m % 60 === 0).map((m) => (
                 <div key={m} className={`line ${m % 60 === 0 ? 'hour' : ''}`} style={{ top: (m - open_min) * PX }} />
@@ -305,6 +318,11 @@ export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen,
                     </button>
                   )
                 })}
+              {hover?.key === key && pick?.key !== key && (
+                <div className="hover-slot" style={{ top: (hover.min - open_min) * PX, height: Math.max(step * PX - 2, 12) }}>
+                  {step * PX >= 18 && <span>+ {fromMin(hover.min)}</span>}
+                </div>
+              )}
               {pick?.key === key && (
                 <button
                   type="button"

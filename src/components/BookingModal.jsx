@@ -9,6 +9,7 @@ import { lineFromItem, lineSum, linesTotal, repriceLines, rub, unitPrice } from 
 import { can } from '../access.js'
 import { haptic } from '../haptics.js'
 import Modal from './Modal.jsx'
+import { LogEntry } from './JournalModal.jsx'
 
 const QUICK = 8 // сколько услуг из прайса показывать кнопками
 
@@ -194,7 +195,7 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
       if (!canStatus || f.status === initial.status) return onClose()
       return persist({ ...initial, status: f.status })
     }
-    if (!f.car.trim()) return fail('Укажите машину')
+    if (!f.car?.trim()) return fail('Укажите машину')
     if (f.ends_at <= f.starts_at) return fail('Окончание должно быть позже начала')
     if (pastStart) return fail('Это время уже прошло — выберите время позже')
     if (phoneErr) return fail('Телефон: ' + phoneErr.toLowerCase())
@@ -209,7 +210,7 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
       // вид работы для выгрузки в таблицу: выбранный или услуги из расчёта
       work: f.work || clean.map((l) => l.name.trim()).join(', '),
       car: f.car.trim(),
-      client_name: f.client_name.trim(),
+      client_name: (f.client_name || '').trim(),
       items: clean,
       total: clean.length ? linesTotal(clean) : null,
       created_by: f.created_by || user?.name || null,
@@ -218,7 +219,7 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
   const persist = async (row) => {
     setBusy(true)
     try {
-      onSaved(await store.saveBooking(row))
+      onSaved(await store.saveBooking(row, user?.name))
     } catch (err) {
       setError(err instanceof ConflictError ? (err.booking ? conflictText(err.booking, dept) : err.message) : 'Ошибка: ' + err.message)
       setBusy(false)
@@ -573,6 +574,7 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
             ))}
           </div>
         )}
+        {!isNew && <BookingHistory id={initial.id} depts={allDepts} />}
         {error && !conflict && <div className="err">{error}</div>}
 
         <div className="buttons sticky">
@@ -642,3 +644,22 @@ const conflictText = (c, dept) =>
   `Пост занят: ${c.car}, ${humanStamp(c.starts_at)} — ${humanStamp(c.ends_at)}` +
   (dept?.posts[c.post - 1] ? ` (${dept.posts[c.post - 1].name})` : '') +
   '. Выберите другое время или пост.'
+
+// История одной записи из журнала: свёрнута, раскрывается по нажатию
+function BookingHistory({ id, depts }) {
+  const [list, setList] = useState(null)
+  useEffect(() => {
+    store.listLog({ bookingId: id, limit: 100 }).then(setList).catch(() => setList([]))
+  }, [id])
+  if (!list?.length) return null
+  return (
+    <details className="history">
+      <summary>История изменений · {list.length}</summary>
+      <ul className="log">
+        {list.map((e) => (
+          <LogEntry key={e.id} e={e} depts={depts} withCar={false} withDate />
+        ))}
+      </ul>
+    </details>
+  )
+}

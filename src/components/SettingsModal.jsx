@@ -51,7 +51,7 @@ export default function SettingsModal({ config, user, onClose, onSaved }) {
           ...d,
           posts: d.posts.map((p) => ({ ...p, duration: Math.max(15, Number(p.duration) || 60) })),
         })),
-      })
+      }, user.name)
       onSaved()
     } catch (err) {
       setError('Ошибка: ' + err.message)
@@ -69,7 +69,7 @@ export default function SettingsModal({ config, user, onClose, onSaved }) {
         ))}
       </nav>
       {tab === 'import' ? (
-        <ImportSection config={config} />
+        <ImportSection config={config} user={user} />
       ) : (
         <form className="form" onSubmit={save}>
           {tab === 'depts' && <DeptsTab cfg={cfg} setCfg={setCfg} />}
@@ -491,7 +491,7 @@ function PricesTab({ cfg, setCfg }) {
 
 /* ---------- Импорт записей ---------- */
 
-function ImportSection({ config }) {
+function ImportSection({ config, user }) {
   const depts = config.departments
   const [dept, setDept] = useState(depts[0]?.id)
   const [parsed, setParsed] = useState(null)
@@ -508,7 +508,7 @@ function ImportSection({ config }) {
   const run = async () => {
     setBusy(true)
     try {
-      setResult(await store.importBookings(parsed.bookings))
+      setResult(await store.importBookings(parsed.bookings, user.name))
       setParsed(null)
     } catch (err) {
       setResult({ error: err.message })
