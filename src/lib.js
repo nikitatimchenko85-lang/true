@@ -1,26 +1,108 @@
 // Чистые функции: время, даты, проверка пересечений. Без зависимостей — покрыты тестами.
 
+// Статусы. "Записан" в таблице — пустая ячейка (клиент приехал / всё в порядке).
 export const STATUSES = {
-  planned: { label: 'Записан', color: '#2563eb' },
-  arrived: { label: 'Приехал', color: '#7c3aed' },
-  in_progress: { label: 'В работе', color: '#d97706' },
-  done: { label: 'Готово', color: '#16a34a' },
-  cancelled: { label: 'Отменена', color: '#9ca3af' },
-  no_show: { label: 'Не приехал', color: '#dc2626' },
+  planned: { label: 'Записан', sheet: '', color: '#2563eb' },
+  no_show: { label: 'Не приехал', sheet: 'Не приехал', color: '#dc2626' },
+  cancelled: { label: 'Отменил заранее', sheet: 'Отменил заранее', color: '#9ca3af' },
+  in_progress: { label: 'В работе', sheet: 'В работе', color: '#d97706', extended: true },
+  waiting_parts: { label: 'Ждёт запчасти', sheet: 'Ждёт запчасти', color: '#7c3aed', extended: true },
+  done: { label: 'Готово', sheet: 'Готово', color: '#16a34a', extended: true },
 }
+export const statusesFor = (dept) =>
+  Object.entries(STATUSES).filter(([, v]) => !v.extended || dept?.extended_statuses)
 
-// Отменённые и неявки не занимают пост
+// Не приехал и отменённые не занимают пост
 export const isBlocking = (b) => b.status !== 'cancelled' && b.status !== 'no_show'
 
-export const DEFAULT_SERVICES = [
-  { id: 'wrap', name: 'Оклейка плёнкой', color: '#2563eb', duration: 480, posts: 2, sort: 1, active: true },
-  { id: 'tires', name: 'Шиномонтаж', color: '#16a34a', duration: 60, posts: 2, sort: 2, active: true },
-  { id: 'service', name: 'СТО', color: '#d97706', duration: 120, posts: 2, sort: 3, active: true },
-  { id: 'polish', name: 'Полировка / керамика', color: '#7c3aed', duration: 240, posts: 1, sort: 4, active: true },
-  { id: 'wash', name: 'Мойка / химчистка', color: '#0891b2', duration: 90, posts: 1, sort: 5, active: true },
-]
+// Быстрые пометки одним касанием
+export const TAGS = ['договор', 'хранение', 'Run Flat', 'далее мойка', 'машина уже в центре']
 
-export const DEFAULT_SETTINGS = { company: 'Детейлинг', open_min: 9 * 60, close_min: 21 * 60, step: 30 }
+export const TIRE_CLASSES = ['II', 'III', 'IV', 'V', 'Низкий профиль', 'Свыше 3,5 тонн']
+export const RADII = Array.from({ length: 11 }, (_, i) => `R${13 + i}`)
+
+const H = (h) => h * 60
+
+export const DEFAULT_CONFIG = {
+  company: 'TRUE DETAILING',
+  admins: ['Данилов', 'Мудрец Я.', 'Клименко', 'Горкунов'],
+  departments: [
+    {
+      id: 'tires', name: 'Шиномонтаж', color: '#16a34a', step: 30, open_min: H(8), close_min: H(23),
+      sheet: 'Заявки Шиномонтаж', tire_fields: true, extended_statuses: false, active: true,
+      works: [
+        'Комплексный шиномонтаж', 'Снятие и установка колес', 'Монтаж и демонтаж', 'Балансировка', 'Ремонт шины',
+        'Варка бокового пореза', 'Правка литого диска', 'Хранение: прием или выдача', 'Дошиповка', 'Прочее',
+      ],
+      posts: [
+        { name: 'Пост 1 Автолюкс', entity: 'АвтоЛюкс', duration: 60, banned: '' },
+        { name: 'Пост 2 Автолюкс', entity: 'АвтоЛюкс', duration: 60, banned: '' },
+        { name: 'Пост 3 Валькор', entity: 'Валькор', duration: 120, banned: 'Mercedes' },
+        { name: 'Пост 4 Валькор', entity: 'Валькор', duration: 120, banned: 'Mercedes' },
+      ],
+    },
+    {
+      id: 'wash', name: 'Мойка', color: '#0891b2', step: 30, open_min: H(8), close_min: H(23),
+      sheet: 'Заявки Мойка', active: true,
+      works: ['Ручная мойка', 'Портальная мойка', 'Комплексная мойка', 'Химчистка', 'Прочее'],
+      posts: [
+        { name: 'Ручная, бокс 1', entity: 'АвтоЛюкс', duration: 60, banned: '' },
+        { name: 'Ручная, бокс 2', entity: 'АвтоЛюкс', duration: 60, banned: '' },
+        { name: 'Портал', entity: 'АвтоЛюкс', duration: 30, banned: '' },
+      ],
+    },
+    {
+      id: 'service', name: 'СТО', color: '#d97706', step: 30, open_min: H(9), close_min: H(21),
+      sheet: 'Заявки СТО', extended_statuses: true, active: true,
+      works: ['Диагностика', 'ТО', 'Подвеска', 'Двигатель', 'Электрика', 'Шиномонтаж', 'Прочее'],
+      posts: [
+        { name: 'Пост 1', entity: 'Валькор', duration: 120, banned: '' },
+        { name: 'Пост 2', entity: 'Валькор', duration: 120, banned: '' },
+      ],
+    },
+    {
+      id: 'detailing', name: 'Детейлинг', color: '#7c3aed', step: 60, open_min: H(9), close_min: H(21),
+      sheet: 'Заявки Детейлинг', extended_statuses: true, active: true,
+      works: ['Оклейка плёнкой', 'Полировка', 'Керамика', 'Химчистка салона', 'Тонировка', 'Прочее'],
+      posts: [
+        { name: 'Бокс Автолюкс', entity: 'АвтоЛюкс', duration: 480, banned: '' },
+        { name: 'Бокс Валькор', entity: 'Валькор', duration: 480, banned: '' },
+      ],
+    },
+    {
+      id: 'anticor', name: 'Антикор', color: '#64748b', step: 60, open_min: H(9), close_min: H(21),
+      sheet: 'Заявки Антикор TRUE', extended_statuses: true, active: false,
+      works: ['Антикор днища', 'Скрытые полости', 'Прочее'],
+      posts: [{ name: 'Бокс антикор', entity: 'Валькор', duration: 480, banned: '' }],
+    },
+  ],
+}
+
+// Ограничения поста: "Mercedes не записываем" и т.п. Возвращает запрещённую марку или null.
+const BRAND_ALIASES = {
+  mercedes: ['mercedes', 'мерседес', 'мерс', 'benz', 'бенц', 'amg', 'амг', 'mb '],
+}
+export function bannedBrand(post, car) {
+  if (!post?.banned || !car) return null
+  const text = ` ${car.toLowerCase()} `
+  for (const raw of post.banned.split(',')) {
+    const brand = raw.trim()
+    if (!brand) continue
+    const aliases = BRAND_ALIASES[brand.toLowerCase()] || [brand.toLowerCase()]
+    if (aliases.some((a) => text.includes(a))) return brand
+  }
+  return null
+}
+
+// Сетка для режима "все подразделения": самые широкие часы и самый мелкий шаг
+export function unionView(depts) {
+  if (!depts.length) return { open_min: H(9), close_min: H(21), step: 30 }
+  return {
+    open_min: Math.min(...depts.map((d) => d.open_min)),
+    close_min: Math.max(...depts.map((d) => d.close_min)),
+    step: Math.min(...depts.map((d) => d.step)),
+  }
+}
 
 const pad = (n) => String(n).padStart(2, '0')
 
@@ -81,7 +163,7 @@ export function findConflict(bookings, cand) {
 
 // Первый свободный пост услуги на это время, или null
 export function freePost(bookings, service, cand) {
-  for (let p = 1; p <= service.posts; p++) {
+  for (let p = 1; p <= service.posts.length; p++) {
     if (!findConflict(bookings, { ...cand, service_id: service.id, post: p })) return p
   }
   return null

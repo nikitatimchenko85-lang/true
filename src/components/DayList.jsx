@@ -1,13 +1,12 @@
 import { STATUSES, clipToDay, formatPhone, fromMin, humanStamp } from '../lib.js'
 
-export default function DayList({ date, services, allServices, bookings, settings, onOpen, onCreate }) {
-  const visible = new Set(services.map((s) => s.id))
-  const byId = Object.fromEntries(allServices.map((s) => [s.id, s]))
+export default function DayList({ date, depts, bookings, view, onOpen, onCreate }) {
+  const byId = Object.fromEntries(depts.map((d) => [d.id, d]))
   const items = bookings
-    .filter((b) => visible.has(b.service_id))
-    .map((b) => ({ b, v: clipToDay(b, date, settings) }))
+    .filter((b) => byId[b.service_id])
+    .map((b) => ({ b, v: clipToDay(b, date, view) }))
     .filter((x) => x.v)
-    .sort((x, y) => x.v.start - y.v.start || x.b.service_id.localeCompare(y.b.service_id))
+    .sort((x, y) => x.v.start - y.v.start || x.b.service_id.localeCompare(y.b.service_id) || x.b.post - y.b.post)
 
   if (!items.length)
     return (
@@ -15,7 +14,7 @@ export default function DayList({ date, services, allServices, bookings, setting
         На этот день записей нет.
         <br />
         <button className="primary" onClick={() => onCreate()}>
-          + Записать клиента
+          + Записать
         </button>
       </div>
     )
@@ -23,10 +22,11 @@ export default function DayList({ date, services, allServices, bookings, setting
   return (
     <ul className="list">
       {items.map(({ b, v }) => {
-        const s = byId[b.service_id]
+        const d = byId[b.service_id]
         const st = STATUSES[b.status] || STATUSES.planned
+        const post = d.posts[b.post - 1]?.name || `Пост ${b.post}`
         return (
-          <li key={b.id} className={`row status-${b.status}`} style={{ '--c': s?.color || '#999' }} onClick={() => onOpen(b)}>
+          <li key={b.id} className={`row status-${b.status}`} style={{ '--c': d.color }} onClick={() => onOpen(b)}>
             <div className="r-time">
               <b>{fromMin(v.start)}</b>
               <span>{fromMin(v.end)}</span>
@@ -34,28 +34,39 @@ export default function DayList({ date, services, allServices, bookings, setting
             <div className="r-main">
               <div className="r-top">
                 <span className="tag">
-                  {s?.name || b.service_id}
-                  {s?.posts > 1 ? ` · пост ${b.post}` : ''}
+                  {d.name} · {post}
                 </span>
-                <span className="pill" style={{ '--s': st.color }}>
-                  {st.label}
-                </span>
+                {b.status !== 'planned' && (
+                  <span className="pill" style={{ '--s': st.color }}>
+                    {st.label}
+                  </span>
+                )}
               </div>
-              <div className="r-name">{b.client_name}</div>
+              <div className="r-name">{b.car}</div>
               <div className="r-sub">
+                {b.client_name && <span>{b.client_name}</span>}
                 {b.phone && (
                   <a href={`tel:${b.phone}`} onClick={(e) => e.stopPropagation()}>
                     {formatPhone(b.phone)}
                   </a>
                 )}
-                {[b.car, b.plate].filter(Boolean).join(' · ')}
+                {[b.work, b.tire_class, b.radius].filter(Boolean).join(' · ')}
               </div>
+              {(b.tags?.length > 0 || b.comment) && (
+                <div className="r-sub">
+                  {b.tags?.map((t) => (
+                    <span key={t} className="mini-tag">
+                      {t}
+                    </span>
+                  ))}
+                  {b.comment && <span className="muted">{b.comment}</span>}
+                </div>
+              )}
               {(v.continuesBefore || v.continuesAfter) && (
                 <div className="r-sub muted">
                   {humanStamp(b.starts_at)} — {humanStamp(b.ends_at)}
                 </div>
               )}
-              {b.comment && <div className="r-sub muted">{b.comment}</div>}
             </div>
           </li>
         )

@@ -2,7 +2,7 @@
 //  - Supabase (общая база для всех сотрудников, синхронизация в реальном времени)
 //  - localStorage (если Supabase не настроен — работает сразу, но только в этом браузере)
 import { createClient } from '@supabase/supabase-js'
-import { DEFAULT_SERVICES, DEFAULT_SETTINGS, findConflict, normStamp, uid } from './lib.js'
+import { DEFAULT_CONFIG, findConflict, normStamp, uid } from './lib.js'
 
 export class ConflictError extends Error {
   constructor(booking) {
@@ -15,15 +15,18 @@ const SB_URL = import.meta.env.VITE_SUPABASE_URL
 const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 const BOOKING_FIELDS = [
-  'service_id', 'post', 'starts_at', 'ends_at', 'client_name', 'phone', 'car', 'plate',
-  'price', 'comment', 'status', 'created_by',
+  'service_id', 'post', 'starts_at', 'ends_at', 'car', 'client_name', 'phone', 'work',
+  'tire_class', 'radius', 'tags', 'comment', 'status', 'created_by',
 ]
+
+// Настройки из базы поверх стандартных (новые поля по умолчанию не теряются)
+const withDefaults = (cfg) => ({ ...DEFAULT_CONFIG, ...(cfg || {}) })
 const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => k in obj).map((k) => [k, obj[k]]))
 
 /* ---------------- localStorage ---------------- */
 
 function createLocalStore() {
-  const KEY = { bookings: 'db.bookings', services: 'db.services', settings: 'db.settings' }
+  const KEY = { bookings: 'db.bookings', config: 'db.config' }
   const read = (k, fallback) => {
     try {
       const v = JSON.parse(localStorage.getItem(k))
@@ -61,7 +64,6 @@ function createLocalStore() {
           (b) =>
             b.client_name?.toLowerCase().includes(s) ||
             b.car?.toLowerCase().includes(s) ||
-            b.plate?.toLowerCase().includes(s) ||
             (digits.length >= 3 && b.phone?.replace(/\D/g, '').includes(digits)),
         )
         .sort((a, b) => (a.starts_at < b.starts_at ? 1 : -1))
@@ -80,20 +82,26 @@ function createLocalStore() {
       write(KEY.bookings, [...all, created])
       return created
     },
-    async deleteBooking(id) {
-      write(KEY.bookings, read(KEY.bookings, []).filter((b) => b.id !== id))
+    async importBookings(list) {
+      const all = read(KEY.bookings, [])
+      const now = new Date().toISOString()
+      let added = 0
+      const skipped = []
+      for (const b of list) {
+        if (findConflict(all, b)) skipped.push(b)
+        else {
+          all.push({ ...b, id: uid(), created_at: now, updated_at: now })
+          added++
+        }
+      }
+      write(KEY.bookings, all)
+      return { added, skipped }
     },
-    async listServices() {
-      return read(KEY.services, DEFAULT_SERVICES)
+    async getConfig() {
+      return withDefaults(read(KEY.config, null))
     },
-    async saveServices(list) {
-      write(KEY.services, list)
-    },
-    async getSettings() {
-      return { ...DEFAULT_SETTINGS, ...read(KEY.settings, {}) }
-    },
-    async saveSettings(s) {
-      write(KEY.settings, s)
+    async saveConfig(cfg) {
+      write(KEY.config, cfg)
     },
     subscribe(fn) {
       listeners.add(fn)
@@ -135,7 +143,7 @@ function createSupabaseStore() {
     async searchBookings(q) {
       const s = q.replace(/[%,()]/g, ' ').trim()
       const digits = q.replace(/\D/g, '')
-      const ors = [`client_name.ilike.%${s}%`, `car.ilike.%${s}%`, `plate.ilike.%${s}%`]
+      const ors = [`client_name.ilike.%${s}%`, `car.ilike.%${s}%`, `comment.ilike.%${s}%`]
       if (digits.length >= 3) ors.push(`phone_digits.like.%${digits}%`)
       const data = check(
         await sb.from('bookings').select('*').or(ors.join(',')).order('starts_at', { ascending: false }).limit(50),
@@ -151,28 +159,29 @@ function createSupabaseStore() {
       if (res.error?.code === '23P01') throw new ConflictError(null)
       return norm(check(res))
     },
-    async deleteBooking(id) {
-      check(await sb.from('bookings').delete().eq('id', id))
+    async importBookings(list) {
+      let added = 0
+      const skipped = []
+      // По одной, чтобы пересечения отсеялись базой и не сорвали весь импорт
+      for (const b of list) {
+        const res = await sb.from('bookings').insert(pick(b, BOOKING_FIELDS))
+        if (res.error?.code === '23P01') skipped.push(b)
+        else if (res.error) throw res.error
+        else added++
+      }
+      return { added, skipped }
     },
-    async listServices() {
-      const data = check(await sb.from('services').select('*').order('sort'))
-      return data.length ? data : DEFAULT_SERVICES
-    },
-    async saveServices(list) {
-      check(await sb.from('services').upsert(list))
-    },
-    async getSettings() {
+    async getConfig() {
       const data = check(await sb.from('app_settings').select('value').eq('id', 1).maybeSingle())
-      return { ...DEFAULT_SETTINGS, ...(data?.value || {}) }
+      return withDefaults(data?.value)
     },
-    async saveSettings(s) {
-      check(await sb.from('app_settings').upsert({ id: 1, value: s }))
+    async saveConfig(cfg) {
+      check(await sb.from('app_settings').upsert({ id: 1, value: cfg }))
     },
     subscribe(fn) {
       const ch = sb
         .channel('db-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, fn)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, fn)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'app_settings' }, fn)
         .subscribe()
       return () => sb.removeChannel(ch)

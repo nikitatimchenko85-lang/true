@@ -23,7 +23,7 @@ export default function Login() {
   return (
     <div className="center">
       <form className="login" onSubmit={submit}>
-        <div className="mark">D</div>
+        <img className="login-logo" src="logo.png" alt="TRUE DETAILING" />
         <h1 className="greet">
           Вход для<br />
           сотрудников
