@@ -7,7 +7,6 @@ import {
 import { ROLES, can, deptAllowed, effectiveUser } from './access.js'
 import { haptic } from './haptics.js'
 import Icon from './components/Icon.jsx'
-import Login from './components/Login.jsx'
 import PinLogin from './components/PinLogin.jsx'
 import DayGrid from './components/DayGrid.jsx'
 import DayList from './components/DayList.jsx'
@@ -39,19 +38,6 @@ const weekStart = (key) => {
 }
 
 export default function App() {
-  const [session, setSession] = useState(undefined)
-
-  useEffect(() => {
-    store.getSession().then(setSession)
-    return store.onAuthChange(setSession)
-  }, [])
-
-  if (session === undefined) return <div className="center muted">Загрузка…</div>
-  if (!session) return <Login />
-  return <Main session={session} />
-}
-
-function Main({ session }) {
   // Дата у каждого своя: листание дней не мешает другим администраторам
   const [date, setDate] = useState(today())
   const [config, setConfig] = useState(null)
@@ -252,17 +238,9 @@ function Main({ session }) {
           <button className="round" onClick={lock} title={`Заблокировать (${user.name})`} aria-label="Заблокировать">
             <Icon name="lock" />
           </button>
-          {store.mode === 'supabase' && (
-            <button className="round" onClick={() => store.signOut()} title={`Выйти (${session.user?.email})`} aria-label="Выйти">
-              <Icon name="logout" />
-            </button>
-          )}
         </nav>
       </header>
 
-      {store.mode === 'local' && (
-        <div className="banner">Демо-режим: записи видны только в этом браузере. Для общей базы подключите Supabase (см. README).</div>
-      )}
       {error && <div className="banner error">{error}</div>}
       {newVersion && (
         <div className="banner update">
