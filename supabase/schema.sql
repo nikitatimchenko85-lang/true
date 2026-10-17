@@ -66,6 +66,26 @@ create policy "staff insert" on public.bookings for insert to authenticated with
 create policy "staff update" on public.bookings for update to authenticated using (true) with check (true);
 create policy "staff all" on public.app_settings for all to authenticated using (true) with check (true);
 
+-- Журнал действий: кто и что сделал. Только добавление — менять и удалять строки нельзя.
+create table if not exists public.activity_log (
+  id bigint generated always as identity primary key,
+  at timestamptz not null default now(),
+  user_name text,                      -- сотрудник (по PIN)
+  action text not null,                -- create, update, move, status, settings, pin, import, login
+  booking_id uuid,
+  service_id text,
+  car text,
+  changes jsonb,                       -- { поле: [было, стало] }
+  note text
+);
+create index if not exists activity_log_at_idx on public.activity_log (at desc);
+create index if not exists activity_log_booking_idx on public.activity_log (booking_id);
+alter table public.activity_log enable row level security;
+drop policy if exists "staff read" on public.activity_log;
+drop policy if exists "staff insert" on public.activity_log;
+create policy "staff read" on public.activity_log for select to authenticated using (true);
+create policy "staff insert" on public.activity_log for insert to authenticated with check (true);
+
 -- Мгновенное обновление у всех сотрудников
 do $$
 begin

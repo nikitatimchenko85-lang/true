@@ -18,8 +18,11 @@ const PERIODS = [
   }],
   ['Следующие 7 дней', () => [today(), addDays(today(), 6)]],
 ]
-const pct = (x) => `${Math.round(x * 100)}%`
+const pct = (x) => (x > 0 && x < 0.01 ? '<1%' : `${Math.round(x * 100)}%`)
 const short = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1).replace('.0', '')} млн` : n >= 1e3 ? `${Math.round(n / 1e3)} тыс` : String(Math.round(n)))
+
+// Число в плитке: шрифт подстраивается под длину, чтобы не обрезалось
+const Num = ({ children }) => <b style={{ '--len': String(children).length }}>{children}</b>
 
 export default function ReportsModal({ depts, canExport, onClose, onOpen }) {
   const [[from, to], setRange] = useState(PERIODS[2][1])
@@ -107,15 +110,15 @@ export default function ReportsModal({ depts, canExport, onClose, onOpen }) {
             <div className="kpis">
               <div className="kpi dark">
                 <small>Выручка</small>
-                <b>{rub(s.revenue)}</b>
+                <Num>{rub(s.revenue)}</Num>
               </div>
               <div className="kpi">
                 <small>Записей</small>
-                <b>{s.count}</b>
+                <Num>{s.count}</Num>
               </div>
               <div className="kpi">
                 <small>Средний чек</small>
-                <b>{rub(s.avg)}</b>
+                <Num>{rub(s.avg)}</Num>
               </div>
               <div className="kpi">
                 <small>Не приехали</small>
@@ -125,7 +128,7 @@ export default function ReportsModal({ depts, canExport, onClose, onOpen }) {
               </div>
               <div className="kpi">
                 <small>Загрузка постов</small>
-                <b>{pct(s.load)}</b>
+                <Num>{pct(s.load)}</Num>
               </div>
             </div>
             {s.unpriced > 0 && (

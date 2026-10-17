@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { store } from '../store.js'
-import { RADII, fromMin, tagsFor, uid } from '../lib.js'
+import { RADII, fromMin, uid, worksFor } from '../lib.js'
 import { PERMS, ROLES, can, rolePerms } from '../access.js'
 import { DEFAULT_PRICELISTS, PRICE_CLASSES } from '../prices.js'
 import { download, parsePricelist, pricelistCsv } from '../exports.js'
@@ -8,7 +8,7 @@ import { parseCsv, rowsToBookings } from '../importCsv.js'
 import Modal from './Modal.jsx'
 
 const HOURS = Array.from({ length: 25 }, (_, h) => h * 60)
-const COLORS = ['#16a34a', '#0891b2', '#d97706', '#7c3aed', '#db2777', '#dc2626', '#64748b', '#2563eb']
+const COLORS = ['#1fae78', '#1e9be0', '#ee6516', '#8a6cf5', '#e05a8e', '#e04f3f', '#a8a29e', '#13a8cc']
 const listToText = (l) => (l || []).join(', ')
 const textToList = (t) => t.split(',').map((x) => x.trim()).filter(Boolean)
 
@@ -51,7 +51,7 @@ export default function SettingsModal({ config, user, onClose, onSaved }) {
           ...d,
           posts: d.posts.map((p) => ({ ...p, duration: Math.max(15, Number(p.duration) || 60) })),
         })),
-      })
+      }, user.name)
       onSaved()
     } catch (err) {
       setError('Ошибка: ' + err.message)
@@ -69,7 +69,7 @@ export default function SettingsModal({ config, user, onClose, onSaved }) {
         ))}
       </nav>
       {tab === 'import' ? (
-        <ImportSection config={config} />
+        <ImportSection config={config} user={user} />
       ) : (
         <form className="form" onSubmit={save}>
           {tab === 'depts' && <DeptsTab cfg={cfg} setCfg={setCfg} />}
@@ -187,10 +187,22 @@ function DeptsTab({ cfg, setCfg }) {
                 Виды работ (через запятую)
                 <textarea rows={2} defaultValue={listToText(d.works)} onBlur={(e) => updDept(i, { works: textToList(e.target.value) })} />
               </label>
-              <label>
-                Быстрые пометки под госномером (через запятую)
-                <textarea rows={2} defaultValue={listToText(tagsFor(d))} onBlur={(e) => updDept(i, { tags: textToList(e.target.value) })} />
-              </label>
+              {d.posts.length > 1 && d.works?.length > 0 && (
+                <div className="field">
+                  <span className="lbl">Виды работ на постах (пусто — все виды подразделения)</span>
+                  {d.posts.map((p, k) => (
+                    <label className="post-works" key={`${k}-${listToText(d.works)}`}>
+                      <span>{p.name}</span>
+                      <input defaultValue={listToText(worksFor(d, p))} onBlur={(e) => {
+                          // совпадает со списком по умолчанию — не храним, чтобы пост следовал за списком подразделения
+                          const l = textToList(e.target.value)
+                          updPost(i, k, { works: listToText(l) === listToText(worksFor(d, { ...p, works: null })) ? null : l })
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
               <label className="check">
                 <input type="checkbox" checked={!!d.tire_fields} onChange={(e) => updDept(i, { tire_fields: e.target.checked })} />
                 Поля «класс» и «радиус»
@@ -491,7 +503,7 @@ function PricesTab({ cfg, setCfg }) {
 
 /* ---------- Импорт записей ---------- */
 
-function ImportSection({ config }) {
+function ImportSection({ config, user }) {
   const depts = config.departments
   const [dept, setDept] = useState(depts[0]?.id)
   const [parsed, setParsed] = useState(null)
@@ -508,7 +520,7 @@ function ImportSection({ config }) {
   const run = async () => {
     setBusy(true)
     try {
-      setResult(await store.importBookings(parsed.bookings))
+      setResult(await store.importBookings(parsed.bookings, user.name))
       setParsed(null)
     } catch (err) {
       setResult({ error: err.message })

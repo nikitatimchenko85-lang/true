@@ -26,6 +26,16 @@ export const DEFAULT_TAGS = {
 }
 export const tagsFor = (dept) => dept?.tags ?? DEFAULT_TAGS[dept?.id] ?? ['договор', 'машина уже в центре']
 
+// Виды работ поста: свои, если заданы в настройках, иначе подразделения.
+// Портальная мойка — только на портале, на ручных боксах её нет.
+const isPortal = (s) => /портал/i.test(s || '')
+export function worksFor(dept, post) {
+  const all = dept?.works || []
+  if (post?.works?.length) return post.works
+  if (!all.some(isPortal)) return all
+  return isPortal(post?.name) ? all.filter((w) => isPortal(w) || w === 'Прочее') : all.filter((w) => !isPortal(w))
+}
+
 export const TIRE_CLASSES = ['II', 'III', 'IV', 'V', 'Низкий профиль', 'Свыше 3,5 тонн']
 export const RADII = Array.from({ length: 11 }, (_, i) => `R${13 + i}`)
 
@@ -36,7 +46,7 @@ export const DEFAULT_CONFIG = {
   admins: ['Данилов', 'Мудрец Я.', 'Клименко', 'Горкунов'],
   departments: [
     {
-      id: 'tires', name: 'Шиномонтаж', color: '#16a34a', step: 30, open_min: H(8), close_min: H(23),
+      id: 'tires', name: 'Шиномонтаж', color: '#1fae78', step: 30, open_min: H(8), close_min: H(23),
       sheet: 'Заявки Шиномонтаж', tire_fields: true, extended_statuses: false, active: true,
       works: [
         'Комплексный шиномонтаж', 'Снятие и установка колес', 'Монтаж и демонтаж', 'Балансировка', 'Ремонт шины',
@@ -50,7 +60,7 @@ export const DEFAULT_CONFIG = {
       ],
     },
     {
-      id: 'wash', name: 'Мойка', color: '#0891b2', step: 30, open_min: H(8), close_min: H(23),
+      id: 'wash', name: 'Мойка', color: '#1e9be0', step: 30, open_min: H(8), close_min: H(23),
       sheet: 'Заявки Мойка', active: true,
       works: ['Ручная мойка', 'Портальная мойка', 'Комплексная мойка', 'Химчистка', 'Прочее'],
       posts: [
@@ -60,7 +70,7 @@ export const DEFAULT_CONFIG = {
       ],
     },
     {
-      id: 'service', name: 'СТО', color: '#d97706', step: 30, open_min: H(9), close_min: H(21),
+      id: 'service', name: 'СТО', color: '#ee6516', step: 30, open_min: H(9), close_min: H(21),
       sheet: 'Заявки СТО', extended_statuses: true, active: true,
       works: ['Диагностика', 'ТО', 'Подвеска', 'Двигатель', 'Электрика', 'Шиномонтаж', 'Прочее'],
       posts: [
@@ -69,7 +79,7 @@ export const DEFAULT_CONFIG = {
       ],
     },
     {
-      id: 'detailing', name: 'Детейлинг', color: '#7c3aed', step: 60, open_min: H(9), close_min: H(21),
+      id: 'detailing', name: 'Детейлинг', color: '#8a6cf5', step: 60, open_min: H(9), close_min: H(21),
       sheet: 'Заявки Детейлинг', extended_statuses: true, active: true,
       works: ['Оклейка плёнкой', 'Полировка', 'Керамика', 'Химчистка салона', 'Тонировка', 'Прочее'],
       posts: [
@@ -78,7 +88,7 @@ export const DEFAULT_CONFIG = {
       ],
     },
     {
-      id: 'anticor', name: 'Антикор', color: '#64748b', step: 60, open_min: H(9), close_min: H(21),
+      id: 'anticor', name: 'Антикор', color: '#a8a29e', step: 60, open_min: H(9), close_min: H(21),
       sheet: 'Заявки Антикор TRUE', extended_statuses: true, active: false,
       works: ['Антикор днища', 'Скрытые полости', 'Прочее'],
       posts: [{ name: 'Бокс антикор', entity: 'Валькор', duration: 480, banned: '' }],
