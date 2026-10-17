@@ -556,3 +556,28 @@ button, a, label { -webkit-tap-highlight-color: transparent; }
   .rtable.roles .full { display: none; }
   .rtable.roles .short { display: inline; }
 }
+
+/* Прошедшее время и выбранное окно в сетке */
+.past { position: absolute; left: 0; right: 0; pointer-events: none; background: rgb(0 0 0 / 0.35); z-index: 1; }
+.pick {
+  position: absolute; left: 4px; right: 4px; z-index: 4; border-radius: 14px; padding: 4px 10px;
+  background: var(--accent); color: var(--accent-ink); box-shadow: 0 0 0 2px var(--accent-ink), 0 6px 18px rgb(0 0 0 / 0.4);
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center; text-align: left; line-height: 1.15;
+  animation: pick-in 0.15s ease-out;
+}
+.pick:hover { background: var(--accent); }
+.pick b { font-size: 14px; }
+.pick small { font-size: 11px; font-weight: 600; opacity: 0.75; }
+@keyframes pick-in { from { transform: scale(0.94); opacity: 0.4; } }
+
+/* Поля даты/времени на iPhone не шире экрана */
+.row2 > *, .row3 > * { min-width: 0; }
+input[type='date'], input[type='time'] { -webkit-appearance: none; appearance: none; min-width: 0; max-width: 100%; display: block; }
+input::-webkit-date-and-time-value { text-align: left; }
+.modal { overflow-x: hidden; }
+
+/* Имя в приветствии целиком: шрифт уменьшается под длину имени */
+.hero .greet { overflow-wrap: normal; word-break: normal; hyphens: none; }
+@media (max-width: 700px) {
+  .greet { font-size: min(30px, calc((100vw - 100px) / (var(--len, 12) * 0.82))); }
+}

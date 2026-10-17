@@ -15,8 +15,16 @@ export const statusesFor = (dept) =>
 // Не приехал и отменённые не занимают пост
 export const isBlocking = (b) => b.status !== 'cancelled' && b.status !== 'no_show'
 
-// Быстрые пометки одним касанием
+// Быстрые пометки одним касанием — у каждого подразделения свои (Настройки → Подразделения)
 export const TAGS = ['договор', 'хранение', 'Run Flat', 'далее мойка', 'машина уже в центре']
+export const DEFAULT_TAGS = {
+  tires: TAGS,
+  wash: ['договор', 'машина уже в центре'],
+  service: ['договор', 'далее мойка', 'машина уже в центре'],
+  detailing: ['договор', 'далее мойка', 'машина уже в центре'],
+  anticor: ['договор', 'далее мойка', 'машина уже в центре'],
+}
+export const tagsFor = (dept) => dept?.tags ?? DEFAULT_TAGS[dept?.id] ?? ['договор', 'машина уже в центре']
 
 export const TIRE_CLASSES = ['II', 'III', 'IV', 'V', 'Низкий профиль', 'Свыше 3,5 тонн']
 export const RADII = Array.from({ length: 11 }, (_, i) => `R${13 + i}`)
@@ -182,10 +190,29 @@ export function clipToDay(b, date, settings) {
 export const normalizePhone = (p) => (p || '').replace(/\D/g, '')
 
 export function formatPhone(p) {
-  const d = normalizePhone(p)
+  let d = normalizePhone(p)
+  if (d.length === 10 && d[0] === '9') d = '7' + d
   if (d.length === 11 && (d[0] === '7' || d[0] === '8'))
     return `+7 (${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7, 9)}-${d.slice(9)}`
   return p
+}
+
+// Проверка телефона: пусто — можно, иначе российский номер из 11 цифр (или 10, начиная с 9)
+export function phoneError(p) {
+  if (!p?.trim()) return ''
+  if (/[^\d\s()+\-]/.test(p)) return 'В телефоне только цифры'
+  const d = normalizePhone(p)
+  if (d.length === 10 && d[0] === '9') return ''
+  if (d.length === 11 && (d[0] === '7' || d[0] === '8')) return ''
+  if (d.length === 11) return 'Номер должен начинаться с +7 или 8'
+  return d.length < 11 ? `Не хватает цифр: ${d.length} из 11` : `Лишние цифры: ${d.length} из 11`
+}
+
+// Начало текущего слота: раньше него записывать нельзя
+export function nowSlot(step) {
+  const d = new Date()
+  const m = d.getHours() * 60 + d.getMinutes()
+  return stamp(dateKey(d), Math.floor(m / step) * step)
 }
 
 export function formatDuration(min) {

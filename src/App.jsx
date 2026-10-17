@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ConflictError, store } from './store.js'
 import {
   addDays, computeEnd, dateKey, findConflict, humanDate, humanStamp, isBlocking, nextFreeSlots, parseDate, plural, stamp,
-  splitStamp, today, unionView, weekday, workMinutes,
+  nowSlot, splitStamp, today, unionView, weekday, workMinutes,
 } from './lib.js'
 import { ROLES, can, deptAllowed, effectiveUser } from './access.js'
+import { haptic } from './haptics.js'
 import Icon from './components/Icon.jsx'
 import Login from './components/Login.jsx'
 import PinLogin from './components/PinLogin.jsx'
@@ -194,12 +195,14 @@ function Main({ session }) {
   const move = async (b, to) => {
     const d = allDepts.find((x) => x.id === b.service_id)
     const starts_at = stamp(to.date, to.min)
+    if (starts_at < nowSlot(d.step)) return haptic('error'), setToast('Не перенесено: это время уже прошло')
     const moved = { ...b, post: to.post, starts_at, ends_at: computeEnd(starts_at, workMinutes(b.starts_at, b.ends_at, d), d) }
     const c = findConflict(bookings, moved)
-    if (c) return setToast(`Не перенесено: пост занят (${c.car}, ${humanStamp(c.starts_at)})`)
+    if (c) return haptic('error'), setToast(`Не перенесено: пост занят (${c.car}, ${humanStamp(c.starts_at)})`)
     setBookings((list) => list.map((x) => (x.id === b.id ? moved : x)))
     try {
       await store.saveBooking(moved)
+      haptic('success')
       setToast(`${b.car} → ${d.posts[to.post - 1].name}, ${humanStamp(starts_at)}`)
     } catch (e) {
       setToast(e instanceof ConflictError ? 'Не перенесено: пост уже заняли' : 'Ошибка: ' + e.message)
@@ -244,7 +247,7 @@ function Main({ session }) {
       {error && <div className="banner error">{error}</div>}
 
       <section className="hero">
-        <h1 className="greet">
+        <h1 className="greet" style={{ '--len': Math.max(greeting().length + 1, user.name.length) }}>
           {greeting()},<br />
           {user.name}
         </h1>
@@ -363,6 +366,7 @@ function Main({ session }) {
             onOpen={(b) => setEditing(b)}
             onMove={move}
             canMove={(b) => can(user, 'move') && isBlocking(b)}
+            onPast={() => (haptic('error'), setToast('Это время уже прошло — выберите время позже'))}
           />
         ) : (
           <DayList date={date} depts={depts} bookings={bookings} view={gridView} onOpen={(b) => setEditing(b)} onCreate={openNew} />
@@ -393,6 +397,7 @@ function Main({ session }) {
           pricelists={config.pricelists}
           onClose={() => setEditing(null)}
           onSaved={(b) => {
+            haptic('success')
             setEditing(null)
             setDate(b.starts_at.slice(0, 10))
             load()

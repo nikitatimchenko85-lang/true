@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ConflictError, store } from '../store.js'
 import {
-  RADII, TAGS, TIRE_CLASSES, bannedBrand, computeEnd, findConflict, formatDuration, formatPhone, fromMin,
-  humanStamp, nextFreeSlots, normalizePhone, splitStamp, stamp, statusesFor, today, weekday, workMinutes,
+  RADII, TIRE_CLASSES, bannedBrand, computeEnd, findConflict, formatDuration, formatPhone, fromMin,
+  humanStamp, nextFreeSlots, normalizePhone, nowSlot, phoneError, splitStamp, stamp, statusesFor, tagsFor, today, weekday,
+  workMinutes,
 } from '../lib.js'
 import { lineFromItem, lineSum, linesTotal, repriceLines, rub, unitPrice } from '../prices.js'
 import { can } from '../access.js'
+import { haptic } from '../haptics.js'
 import Modal from './Modal.jsx'
 
 const QUICK = 8 // сколько услуг из прайса показывать кнопками
@@ -119,6 +121,10 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
     return c && c.id !== f.id
   })
   const conflict = findConflict(bookings, f)
+  // В прошлое не записываем; старую запись можно править, пока её время не трогали
+  const pastStart = f.starts_at < nowSlot(dept.step) && (isNew || f.starts_at !== initial.starts_at)
+  const phoneErr = phoneError(f.phone)
+  const [phoneTouched, setPhoneTouched] = useState(false)
 
   // Ближайшие свободные окна — от текущего времени, если смотрим сегодня
   const now = new Date()
@@ -183,16 +189,19 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
   const save = async (e) => {
     e?.preventDefault()
     setError('')
+    const fail = (msg) => (haptic('error'), setError(msg))
     if (!canEdit) {
       if (!canStatus || f.status === initial.status) return onClose()
       return persist({ ...initial, status: f.status })
     }
-    if (!f.car.trim()) return setError('Укажите машину')
-    if (f.ends_at <= f.starts_at) return setError('Окончание должно быть позже начала')
-    if (conflict) return setError(conflictText(conflict, dept))
+    if (!f.car.trim()) return fail('Укажите машину')
+    if (f.ends_at <= f.starts_at) return fail('Окончание должно быть позже начала')
+    if (pastStart) return fail('Это время уже прошло — выберите время позже')
+    if (phoneErr) return fail('Телефон: ' + phoneErr.toLowerCase())
+    if (conflict) return fail(conflictText(conflict, dept))
     if (banned && !warnOk) {
       setWarnOk(true)
-      return setError(`${banned} на «${post.name}» не записываем. Нажмите «Записать всё равно», если это согласовано.`)
+      return fail(`${banned} на «${post.name}» не записываем. Нажмите «Записать всё равно», если это согласовано.`)
     }
     const clean = items.filter((l) => l.name?.trim()).map((l) => ({ ...l, qty: Number(l.qty) || 0, price: l.price === '' || l.price == null ? null : Number(l.price) }))
     persist({
@@ -271,7 +280,7 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
           {banned && <div className="warn">⚠ {banned} на «{post.name}» не записываем</div>}
 
           <div className="tagbar">
-            {TAGS.map((t) => (
+            {[...new Set([...tagsFor(dept), ...f.tags])].map((t) => (
               <button type="button" key={t} className={f.tags.includes(t) ? 'on' : ''} onClick={() => toggleTag(t)}>
                 {t}
               </button>
@@ -331,19 +340,20 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
           <div className="row2">
             <label>
               Дата
-              <input type="date" value={start.date} onChange={(e) => e.target.value && setStart(e.target.value, start.min)} required />
+              <input type="date" value={start.date} min={isNew ? today() : undefined} onChange={(e) => e.target.value && setStart(e.target.value, start.min)} required />
             </label>
             <label>
               Время
               <select value={start.min} onChange={(e) => setStart(start.date, Number(e.target.value))}>
                 {withCurrent(timeOptions, start.min).map((m) => (
-                  <option key={m} value={m}>
+                  <option key={m} value={m} disabled={stamp(start.date, m) < nowSlot(dept.step) && m !== start.min}>
                     {fromMin(m)}
                   </option>
                 ))}
               </select>
             </label>
           </div>
+          {pastStart && <div className="err">Это время уже прошло — выберите время позже</div>}
 
           <div className="field">
             <span className="lbl">
@@ -384,11 +394,17 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
                 type="tel"
                 value={f.phone}
                 onChange={(e) => set({ phone: e.target.value })}
-                onBlur={() => set({ phone: formatPhone(f.phone) })}
+                onBlur={() => {
+                  set({ phone: formatPhone(f.phone) })
+                  setPhoneTouched(true)
+                }}
                 placeholder="+7"
+                inputMode="tel"
+                aria-invalid={!!phoneErr}
               />
             </label>
           </div>
+          {phoneErr && phoneTouched && <div className="err">Телефон: {phoneErr.toLowerCase()}</div>}
 
           {last && (
             <div className="hint">
