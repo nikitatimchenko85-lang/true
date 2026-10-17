@@ -27,3 +27,13 @@ test('история версий: новая сверху', () => {
   assert.equal(VERSION, CHANGELOG[0].version)
   assert.ok(CHANGELOG.every((v, i) => !i || Number(CHANGELOG[i - 1].version) > Number(v.version)))
 })
+
+test('виды работ по постам: портальная мойка только на портале', async () => {
+  const { worksFor } = await import('../src/lib.js')
+  const wash = depts.find((d) => d.id === 'wash')
+  assert.ok(!worksFor(wash, wash.posts[0]).includes('Портальная мойка'))
+  assert.deepEqual(worksFor(wash, wash.posts[2]), ['Портальная мойка', 'Прочее'])
+  assert.deepEqual(worksFor(wash, { ...wash.posts[0], works: ['Химчистка'] }), ['Химчистка'])
+  const tires = depts.find((d) => d.id === 'tires')
+  assert.deepEqual(worksFor(tires, tires.posts[0]), tires.works)
+})

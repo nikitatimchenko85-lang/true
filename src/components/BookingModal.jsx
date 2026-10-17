@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ConflictError, store } from '../store.js'
 import {
   RADII, TIRE_CLASSES, bannedBrand, computeEnd, findConflict, formatDuration, formatPhone, fromMin,
-  humanStamp, nextFreeSlots, normalizePhone, nowSlot, phoneError, splitStamp, stamp, statusesFor, tagsFor, today, weekday,
+  humanStamp, nextFreeSlots, normalizePhone, nowSlot, phoneError, splitStamp, stamp, statusesFor, today, weekday, worksFor,
   workMinutes,
 } from '../lib.js'
 import { lineFromItem, lineSum, linesTotal, repriceLines, rub, unitPrice } from '../prices.js'
@@ -62,6 +62,11 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
 
   const dept = deptOf(f.service_id)
   const post = dept.posts[f.post - 1]
+  const works = worksFor(dept, post)
+  // сменили пост — вид работы, которого на нём не делают, сбрасываем
+  useEffect(() => {
+    if (f.work && dept.works?.includes(f.work) && !works.includes(f.work)) set({ work: '' })
+  }, [f.post, f.service_id])
   const list = pricelists?.[dept.id] || []
   const duration = workMinutes(f.starts_at, f.ends_at, dept)
   const start = splitStamp(f.starts_at)
@@ -90,7 +95,6 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
     set({ post: s.post, starts_at: s.starts_at, ends_at: durTouched ? computeEnd(s.starts_at, duration, dept) : s.ends_at })
     setWarnOk(false)
   }
-  const toggleTag = (t) => set({ tags: f.tags.includes(t) ? f.tags.filter((x) => x !== t) : [...f.tags, t] })
 
   // Класс и радиус пересчитывают цены в заявке
   const setSize = (patch) => {
@@ -280,14 +284,6 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
           </div>
           {banned && <div className="warn">⚠ {banned} на «{post.name}» не записываем</div>}
 
-          <div className="tagbar">
-            {[...new Set([...tagsFor(dept), ...f.tags])].map((t) => (
-              <button type="button" key={t} className={f.tags.includes(t) ? 'on' : ''} onClick={() => toggleTag(t)}>
-                {t}
-              </button>
-            ))}
-          </div>
-
           {isNew && depts.length > 1 && (
             <div className="field">
               <span className="lbl">Подразделение</span>
@@ -425,7 +421,7 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
             masters={users.filter((u) => u.role === 'master' && (!u.depts?.length || u.depts.includes(dept.id))).map((u) => u.name)}
           />
 
-          {dept.works?.length > 0 && list.length === 0 && <WorkChips works={dept.works} value={f.work} onChange={(work) => set({ work })} />}
+          {works.length > 0 && list.length === 0 && <WorkChips works={works} value={f.work} onChange={(work) => set({ work })} />}
 
           {dept.tire_fields && (
             <>
@@ -525,14 +521,6 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
             </div>
           )}
 
-          {dept.works?.length > 0 && list.length > 0 && (
-            <details className="more" open={!!f.work && !items.length}>
-              <summary>
-                Вид работы для таблицы: <b>{f.work || (items.length ? items.map((l) => l.name).filter(Boolean).join(', ') : '—')}</b>
-              </summary>
-              <WorkChips works={dept.works} value={f.work} onChange={(work) => set({ work })} />
-            </details>
-          )}
 
           <label>
             Комментарий
@@ -558,20 +546,32 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
         {!isNew && f.created_by && <p className="muted small">Записал(а): {f.created_by}</p>}
         {!canEdit && f.executor && <p className="muted small">Исполнитель: {f.executor}</p>}
         {!isNew && canEdit && otherDepts.length > 0 && (
+          // Допродажа: следующая услуга для той же машины, сразу после этой записи
           <div className="chain">
-            <span className="muted small">Записать эту машину дальше:</span>
-            {otherDepts.map((d) => (
-              <button
-                type="button"
-                key={d.id}
-                style={{ '--c': d.color }}
-                onClick={() =>
-                  onChain({ service_id: d.id, ...splitStamp(f.ends_at), car: f.car, client_name: f.client_name, phone: f.phone, tire_class: f.tire_class, radius: f.radius })
-                }
-              >
-                <i /> {d.name}
-              </button>
-            ))}
+            <b>Записать эту машину дальше</b>
+            <span className="muted small">Предложите клиенту следующую услугу — время подберётся сразу после этой записи.</span>
+            <div className="chain-btns">
+              {otherDepts.map((d) => {
+                const slot = nextFreeSlots(bookings, d, f.ends_at, { count: 1 })[0]
+                const at = slot ? splitStamp(slot.starts_at) : splitStamp(f.ends_at)
+                return (
+                  <button
+                    type="button"
+                    key={d.id}
+                    style={{ '--c': d.color }}
+                    onClick={() =>
+                      onChain({ service_id: d.id, ...at, post: slot?.post, car: f.car, client_name: f.client_name, phone: f.phone, tire_class: f.tire_class, radius: f.radius })
+                    }
+                  >
+                    <i />
+                    <span>
+                      + {d.name}
+                      {slot && <small>{at.date === splitStamp(f.ends_at).date ? '' : weekday(at.date) + ' '}{fromMin(at.min)}</small>}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
           </div>
         )}
         {!isNew && <BookingHistory id={initial.id} depts={allDepts} />}

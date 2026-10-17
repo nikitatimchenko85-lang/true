@@ -26,6 +26,16 @@ export const DEFAULT_TAGS = {
 }
 export const tagsFor = (dept) => dept?.tags ?? DEFAULT_TAGS[dept?.id] ?? ['договор', 'машина уже в центре']
 
+// Виды работ поста: свои, если заданы в настройках, иначе подразделения.
+// Портальная мойка — только на портале, на ручных боксах её нет.
+const isPortal = (s) => /портал/i.test(s || '')
+export function worksFor(dept, post) {
+  const all = dept?.works || []
+  if (post?.works?.length) return post.works
+  if (!all.some(isPortal)) return all
+  return isPortal(post?.name) ? all.filter((w) => isPortal(w) || w === 'Прочее') : all.filter((w) => !isPortal(w))
+}
+
 export const TIRE_CLASSES = ['II', 'III', 'IV', 'V', 'Низкий профиль', 'Свыше 3,5 тонн']
 export const RADII = Array.from({ length: 11 }, (_, i) => `R${13 + i}`)
 

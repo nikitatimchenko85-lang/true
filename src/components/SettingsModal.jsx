@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { store } from '../store.js'
-import { RADII, fromMin, tagsFor, uid } from '../lib.js'
+import { RADII, fromMin, uid, worksFor } from '../lib.js'
 import { PERMS, ROLES, can, rolePerms } from '../access.js'
 import { DEFAULT_PRICELISTS, PRICE_CLASSES } from '../prices.js'
 import { download, parsePricelist, pricelistCsv } from '../exports.js'
@@ -187,10 +187,22 @@ function DeptsTab({ cfg, setCfg }) {
                 Виды работ (через запятую)
                 <textarea rows={2} defaultValue={listToText(d.works)} onBlur={(e) => updDept(i, { works: textToList(e.target.value) })} />
               </label>
-              <label>
-                Быстрые пометки под госномером (через запятую)
-                <textarea rows={2} defaultValue={listToText(tagsFor(d))} onBlur={(e) => updDept(i, { tags: textToList(e.target.value) })} />
-              </label>
+              {d.posts.length > 1 && d.works?.length > 0 && (
+                <div className="field">
+                  <span className="lbl">Виды работ на постах (пусто — все виды подразделения)</span>
+                  {d.posts.map((p, k) => (
+                    <label className="post-works" key={`${k}-${listToText(d.works)}`}>
+                      <span>{p.name}</span>
+                      <input defaultValue={listToText(worksFor(d, p))} onBlur={(e) => {
+                          // совпадает со списком по умолчанию — не храним, чтобы пост следовал за списком подразделения
+                          const l = textToList(e.target.value)
+                          updPost(i, k, { works: listToText(l) === listToText(worksFor(d, { ...p, works: null })) ? null : l })
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
               <label className="check">
                 <input type="checkbox" checked={!!d.tire_fields} onChange={(e) => updDept(i, { tire_fields: e.target.checked })} />
                 Поля «класс» и «радиус»
