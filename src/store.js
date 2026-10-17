@@ -2,7 +2,8 @@
 //  - Supabase (общая база для всех сотрудников, синхронизация в реальном времени)
 //  - localStorage (если Supabase не настроен — работает сразу, но только в этом браузере)
 import { createClient } from '@supabase/supabase-js'
-import { DEFAULT_CONFIG, findConflict, normStamp, uid } from './lib.js'
+import { findConflict, normStamp, uid } from './lib.js'
+import { withDefaults } from './config.js'
 
 export class ConflictError extends Error {
   constructor(booking) {
@@ -16,11 +17,9 @@ const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 const BOOKING_FIELDS = [
   'service_id', 'post', 'starts_at', 'ends_at', 'car', 'client_name', 'phone', 'work',
-  'tire_class', 'radius', 'tags', 'comment', 'status', 'created_by',
+  'tire_class', 'radius', 'tags', 'comment', 'status', 'created_by', 'items', 'total',
 ]
 
-// Настройки из базы поверх стандартных (новые поля по умолчанию не теряются)
-const withDefaults = (cfg) => ({ ...DEFAULT_CONFIG, ...(cfg || {}) })
 const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => k in obj).map((k) => [k, obj[k]]))
 
 /* ---------------- localStorage ---------------- */
@@ -137,8 +136,15 @@ function createSupabaseStore() {
       await sb.auth.signOut()
     },
     async listBookings(from, to) {
-      const data = check(await sb.from('bookings').select('*').lt('starts_at', to).gt('ends_at', from))
-      return data.map(norm)
+      // Supabase отдаёт не больше 1000 строк за раз — для отчётов за месяц читаем страницами
+      const out = []
+      for (let i = 0; ; i += 1000) {
+        const page = check(
+          await sb.from('bookings').select('*').lt('starts_at', to).gt('ends_at', from).order('starts_at').range(i, i + 999),
+        )
+        out.push(...page)
+        if (page.length < 1000) return out.map(norm)
+      }
     },
     async searchBookings(q) {
       const s = q.replace(/[%,()]/g, ' ').trim()

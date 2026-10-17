@@ -1,4 +1,5 @@
 import { STATUSES, clipToDay, formatPhone, fromMin, humanStamp } from '../lib.js'
+import { rub } from '../prices.js'
 
 export default function DayList({ date, depts, bookings, view, onOpen, onCreate }) {
   const byId = Object.fromEntries(depts.map((d) => [d.id, d]))
@@ -36,6 +37,7 @@ export default function DayList({ date, depts, bookings, view, onOpen, onCreate 
                 <span className="tag">
                   {d.name} · {post}
                 </span>
+                {b.total > 0 && <span className="sum">{rub(b.total)}</span>}
                 {b.status !== 'planned' && (
                   <span className="pill" style={{ '--s': st.color }}>
                     {st.label}

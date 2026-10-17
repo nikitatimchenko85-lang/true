@@ -1,86 +1,124 @@
 import { useState } from 'react'
-import { CLASSES, RADIUSES, SERVICES, unitPrice } from '../prices.js'
+import { RADII } from '../lib.js'
+import { PRICE_CLASSES, lineFromItem, lineSum, linesTotal, repriceLines, rub, unitPrice } from '../prices.js'
 import Modal from './Modal.jsx'
 
-const rub = (n) => `${n.toLocaleString('ru-RU')} ₽`
-
-// Справочный калькулятор шиномонтажа: с записью не связан, нужен, чтобы быстро назвать цену по телефону
-export default function Calculator({ onClose }) {
+// Калькулятор по прайс-листам: быстро назвать цену по телефону и сразу записать с этим расчётом
+export default function Calculator({ depts, pricelists, onClose, onBook }) {
+  const withList = depts.filter((d) => pricelists[d.id]?.length)
+  const [deptId, setDeptId] = useState(withList[0]?.id)
   const [cls, setCls] = useState('')
   const [radius, setRadius] = useState('')
-  const [lines, setLines] = useState([{ service: 0, qty: SERVICES[0].qty, own: '' }])
+  const [lines, setLines] = useState([])
 
-  const upd = (i, patch) => setLines((l) => l.map((x, j) => (j === i ? { ...x, ...patch } : x)))
-  const rows = lines.map((l) => {
-    const s = SERVICES[l.service]
-    const u = unitPrice(s, cls, radius)
-    const price = l.own !== '' ? Number(l.own) : u.price
-    return { ...l, s, u, sum: price != null ? price * (Number(l.qty) || 0) : null }
-  })
-  const total = rows.reduce((a, r) => a + (r.sum || 0), 0)
-  const hasFrom = rows.some((r) => r.s.from && r.own === '')
+  const list = pricelists[deptId] || []
+  const needsClass = list.some((i) => i.kind === 'class_radius')
+  const needsRadius = needsClass || list.some((i) => i.kind === 'radius')
+  const has = (id) => lines.some((l) => l.item_id === id)
+  const toggle = (item) => setLines((ls) => (has(item.id) ? ls.filter((l) => l.item_id !== item.id) : [...ls, lineFromItem(item, cls, radius)]))
+  const size = (c, r) => {
+    setCls(c)
+    setRadius(r)
+    setLines((ls) => repriceLines(ls, list, c, r))
+  }
+  const upd = (i, patch) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)))
+  const total = linesTotal(lines)
+  const hasFrom = lines.some((l) => l.from && !l.own)
+
+  if (!withList.length)
+    return (
+      <Modal title="Калькулятор" onClose={onClose}>
+        <p className="muted">Прайс-листы пустые. Заполните их в Настройках → Прайс-листы.</p>
+      </Modal>
+    )
 
   return (
     <Modal title="Калькулятор" onClose={onClose}>
       <div className="form">
-        <div className="field">
-          <span className="lbl">Класс</span>
-          <div className="presets">
-            {CLASSES.map((c) => (
-              <button type="button" key={c} className={cls === c ? 'on' : ''} onClick={() => setCls(c)}>
-                {c}
+        {withList.length > 1 && (
+          <div className="presets depts">
+            {withList.map((d) => (
+              <button
+                type="button"
+                key={d.id}
+                className={deptId === d.id ? 'on' : ''}
+                style={{ '--c': d.color }}
+                onClick={() => {
+                  setDeptId(d.id)
+                  setLines([])
+                }}
+              >
+                <i /> {d.name}
               </button>
             ))}
           </div>
-        </div>
+        )}
+        {needsClass && (
+          <div className="field">
+            <span className="lbl">Класс</span>
+            <div className="presets">
+              {PRICE_CLASSES.map((c) => (
+                <button type="button" key={c} className={cls === c ? 'on' : ''} onClick={() => size(c, radius)}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {needsRadius && (
+          <div className="field">
+            <span className="lbl">Радиус</span>
+            <div className="presets">
+              {RADII.map((r) => (
+                <button type="button" key={r} className={radius === r ? 'on' : ''} onClick={() => size(cls, r)}>
+                  {r}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="field">
-          <span className="lbl">Радиус</span>
+          <span className="lbl">Услуги</span>
           <div className="presets">
-            {RADIUSES.map((r) => (
-              <button type="button" key={r} className={radius === r ? 'on' : ''} onClick={() => setRadius(r)}>
-                {r}
-              </button>
-            ))}
+            {list.map((i) => {
+              const u = unitPrice(i, cls, radius)
+              return (
+                <button type="button" key={i.id} className={has(i.id) ? 'on' : ''} onClick={() => toggle(i)}>
+                  {i.name}
+                  {u.price != null && <small> · {i.from ? 'от ' : ''}{u.price}</small>}
+                </button>
+              )
+            })}
           </div>
         </div>
 
-        <div className="calc">
-          {rows.map((r, i) => (
-            <div className="calc-row" key={i}>
-              <select
-                value={r.service}
-                onChange={(e) => {
-                  const n = Number(e.target.value)
-                  upd(i, { service: n, qty: SERVICES[n].qty, own: '' })
-                }}
-              >
-                {SERVICES.map((s, n) => (
-                  <option key={s.name} value={n}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-              <input type="number" min="0" value={r.qty} onChange={(e) => upd(i, { qty: e.target.value })} aria-label="Количество" />
-              <input
-                type="number"
-                min="0"
-                step="50"
-                value={r.own}
-                onChange={(e) => upd(i, { own: e.target.value })}
-                placeholder={r.u.price != null ? `${r.s.from ? 'от ' : ''}${r.u.price}` : 'своя цена'}
-                aria-label="Своя цена"
-              />
-              <span className="calc-sum">{r.sum != null ? rub(r.sum) : <span className="muted">{r.u.hint}</span>}</span>
-              <button type="button" className="round sm" onClick={() => setLines((l) => l.filter((_, j) => j !== i))} aria-label="Убрать">
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
-        {lines.length < 8 && (
-          <button type="button" onClick={() => setLines((l) => [...l, { service: 1, qty: SERVICES[1].qty, own: '' }])}>
-            + Услуга
-          </button>
+        {lines.length > 0 && (
+          <div className="lines">
+            {lines.map((l, i) => {
+              const item = list.find((x) => x.id === l.item_id)
+              return (
+                <div className="line-row" key={l.item_id}>
+                  <span className="line-name">
+                    {l.name}
+                    {l.price == null && item && <small className="muted"> · {unitPrice(item, cls, radius).hint}</small>}
+                  </span>
+                  <input type="number" min="0" value={l.qty} onChange={(e) => upd(i, { qty: e.target.value })} aria-label="Количество" />
+                  <input
+                    type="number"
+                    step="50"
+                    value={l.price ?? ''}
+                    onChange={(e) => upd(i, { price: e.target.value === '' ? null : e.target.value, own: true })}
+                    placeholder="цена"
+                    aria-label="Цена за единицу"
+                  />
+                  <span className="line-sum">{l.price != null ? rub(lineSum(l)) : '—'}</span>
+                  <button type="button" className="round sm" onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} aria-label="Убрать">
+                    ×
+                  </button>
+                </div>
+              )
+            })}
+          </div>
         )}
 
         <div className="calc-total">
@@ -90,7 +128,16 @@ export default function Calculator({ onClose }) {
             {rub(total)}
           </b>
         </div>
-        <p className="muted small">Количество, цена за единицу, своя цена — для услуг «от» и скидок. В запись цена не попадает.</p>
+        {onBook && (
+          <button
+            type="button"
+            className="primary big"
+            disabled={!lines.length}
+            onClick={() => onBook({ service_id: deptId, tire_class: cls, radius, items: lines })}
+          >
+            Записать с этим расчётом
+          </button>
+        )}
       </div>
     </Modal>
   )

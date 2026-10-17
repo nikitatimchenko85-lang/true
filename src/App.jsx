@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ConflictError, store } from './store.js'
 import {
-  addDays, computeEnd, dateKey, findConflict, humanDate, humanStamp, isBlocking, parseDate, stamp, today,
-  unionView, weekday, workMinutes,
+  addDays, computeEnd, dateKey, findConflict, humanDate, humanStamp, isBlocking, nextFreeSlots, parseDate, plural, stamp,
+  splitStamp, today, unionView, weekday, workMinutes,
 } from './lib.js'
+import { ROLES, can, deptAllowed } from './access.js'
 import Icon from './components/Icon.jsx'
 import Login from './components/Login.jsx'
-import WhoAmI from './components/WhoAmI.jsx'
+import PinLogin from './components/PinLogin.jsx'
 import DayGrid from './components/DayGrid.jsx'
 import DayList from './components/DayList.jsx'
 import BookingModal from './components/BookingModal.jsx'
 import SettingsModal from './components/SettingsModal.jsx'
 import SearchModal from './components/SearchModal.jsx'
 import Calculator from './components/Calculator.jsx'
+import ReportsModal from './components/ReportsModal.jsx'
 
 const pref = (k, fallback) => {
   try {
@@ -55,8 +57,10 @@ function Main({ session }) {
   const [view, setView] = useState(() => pref('view', 'grid'))
   const [deptId, setDeptId] = useState(() => pref('dept', 'tires'))
   const [editing, setEditing] = useState(null)
-  const [panel, setPanel] = useState(null) // settings | search | calc
-  const [me, setMe] = useState(() => pref('employee', ''))
+  const [panel, setPanel] = useState(null) // settings | search | calc | reports
+  // Кто работает: вход по PIN, экран блокируется после простоя
+  const [userId, setUserId] = useState(() => pref('pin.user', ''))
+  const [unlocked, setUnlocked] = useState(() => Date.now() < Number(pref('pin.until', 0)))
 
   const week = weekStart(date)
   // неделя + запас, чтобы видеть многодневные работы
@@ -80,6 +84,26 @@ function Main({ session }) {
 
   useEffect(() => setPref('view', view), [view])
   useEffect(() => setPref('dept', deptId), [deptId])
+  const lockMin = config?.lock_min ?? 30
+  useEffect(() => {
+    if (!unlocked) return
+    let last = 0
+    const touch = () => {
+      if (Date.now() - last < 15_000) return
+      last = Date.now()
+      setPref('pin.until', lockMin ? Date.now() + lockMin * 60_000 : 8.64e15)
+    }
+    touch()
+    const check = setInterval(() => Date.now() > Number(pref('pin.until', 0)) && setUnlocked(false), 15_000)
+    window.addEventListener('pointerdown', touch)
+    window.addEventListener('keydown', touch)
+    return () => {
+      clearInterval(check)
+      window.removeEventListener('pointerdown', touch)
+      window.removeEventListener('keydown', touch)
+    }
+  }, [unlocked, lockMin])
+
   useEffect(() => {
     if (!toast) return
     const t = setTimeout(() => setToast(''), 4000)
@@ -88,14 +112,47 @@ function Main({ session }) {
 
   if (!config) return <div className="center muted">{error || 'Загрузка…'}</div>
 
-  const saveMe = (v) => {
-    setMe(v)
-    setPref('employee', v)
+  const user = unlocked && config.users.find((u) => u.id === userId)
+  if (!user) {
+    return (
+      <PinLogin
+        users={config.users}
+        lastId={userId}
+        onLogin={(u) => {
+          setUserId(u.id)
+          setPref('pin.user', u.id)
+          setPref('pin.until', Date.now() + 60_000)
+          setUnlocked(true)
+        }}
+        onSetPin={async (u, pin) => {
+          const fresh = await store.getConfig()
+          await store.saveConfig({ ...fresh, users: fresh.users.map((x) => (x.id === u.id ? { ...x, pin } : x)) })
+          await load()
+        }}
+      />
+    )
   }
-  if (!me) return <WhoAmI admins={config.admins} onPick={saveMe} />
+  const lock = () => {
+    setPref('pin.until', 0)
+    setUnlocked(false)
+    setPanel(null)
+    setEditing(null)
+  }
+  const canBook = can(user, 'book')
+  const canSettings = ['settings', 'users', 'pricelists'].some((p) => can(user, p))
+  const canReports = can(user, 'reports') || can(user, 'export')
 
   const allDepts = config.departments
-  const active = allDepts.filter((d) => d.active !== false)
+  const active = allDepts.filter((d) => d.active !== false && deptAllowed(user, d.id))
+  if (!active.length)
+    return (
+      <div className="center">
+        <div className="login">
+          <p>У вас нет доступа ни к одному подразделению. Обратитесь к руководителю.</p>
+          <button onClick={lock}>Сменить пользователя</button>
+        </div>
+      </div>
+    )
   const shown = deptId === 'all' ? active : active.filter((d) => d.id === deptId)
   const depts = shown.length ? shown : active.slice(0, 1)
   const gridView = depts.length === 1 ? depts[0] : unionView(depts)
@@ -115,15 +172,22 @@ function Main({ session }) {
   const nowStamp = stamp(today(), now.getHours() * 60 + now.getMinutes())
   const busyNow = live.filter((b) => b.starts_at <= nowStamp && b.ends_at > nowStamp).length
 
+  // Без выбранного места — сразу ближайшее свободное окно
   const openNew = (preset = {}) => {
-    const d = allDepts.find((x) => x.id === preset.service_id) || depts[0]
-    setEditing({
-      ...preset,
-      service_id: d.id,
-      post: preset.post || 0,
-      date: preset.date || date,
-      min: preset.min ?? nextSlot(d, preset.date || date),
-    })
+    if (!canBook) return
+    const d = active.find((x) => x.id === preset.service_id) || depts[0]
+    const day = preset.date || date
+    let { post = 0, min } = preset
+    let slotDay = day
+    if (min == null) {
+      const from = stamp(day, day === today() ? nextSlot(d, day) : 0)
+      const slot = nextFreeSlots(bookings, d, from, { count: 1 })[0]
+      if (slot) {
+        ;({ date: slotDay, min } = splitStamp(slot.starts_at))
+        post = slot.post
+      } else min = nextSlot(d, day)
+    }
+    setEditing({ ...preset, service_id: d.id, post, date: slotDay, min })
   }
 
   // Перетаскивание: та же длительность, новое время/пост
@@ -149,8 +213,9 @@ function Main({ session }) {
     { key: 'list', icon: 'list', label: 'Список', on: view === 'list', act: () => setView('list') },
     { key: 'search', icon: 'search', label: 'Поиск', act: () => setPanel('search') },
     { key: 'calc', icon: 'calc', label: 'Калькулятор цен', act: () => setPanel('calc') },
-    { key: 'settings', icon: 'settings', label: 'Настройки', act: () => setPanel('settings') },
-  ]
+    canReports && { key: 'reports', icon: 'chart', label: 'Отчёты и выгрузки', act: () => setPanel('reports') },
+    canSettings && { key: 'settings', icon: 'settings', label: 'Настройки', act: () => setPanel('settings') },
+  ].filter(Boolean)
 
   return (
     <div className="app">
@@ -162,6 +227,9 @@ function Main({ session }) {
               <Icon name={n.icon} />
             </button>
           ))}
+          <button className="round" onClick={lock} title={`Заблокировать (${user.name})`} aria-label="Заблокировать">
+            <Icon name="lock" />
+          </button>
           {store.mode === 'supabase' && (
             <button className="round" onClick={() => store.signOut()} title={`Выйти (${session.user?.email})`} aria-label="Выйти">
               <Icon name="logout" />
@@ -178,23 +246,30 @@ function Main({ session }) {
       <section className="hero">
         <h1 className="greet">
           {greeting()},<br />
-          {me}
+          {user.name}
         </h1>
-        <button className="avatar" onClick={() => setPanel('settings')} title="Сменить администратора">
-          {me.slice(0, 1).toUpperCase()}
+        <button className="avatar" onClick={lock} title={`${ROLES[user.role]?.label}. Нажмите, чтобы сменить пользователя`}>
+          {user.name.slice(0, 1).toUpperCase()}
         </button>
       </section>
 
       <section className="tiles">
-        <button className="tile accent cta" onClick={() => openNew()}>
-          <span>
-            <b>Записать</b>
-            <small>{depts.length === 1 ? depts[0].name : 'в любое подразделение'}</small>
-          </span>
-          <span className="go">
-            <Icon name="plus" />
-          </span>
-        </button>
+        {canBook ? (
+          <button className="tile accent cta" onClick={() => openNew()}>
+            <span>
+              <b>Записать</b>
+              <small>{depts.length === 1 ? `${depts[0].name} · ближайшее свободное время` : 'в любое подразделение'}</small>
+            </span>
+            <span className="go">
+              <Icon name="plus" />
+            </span>
+          </button>
+        ) : (
+          <div className="tile accent">
+            <b>{ROLES[user.role]?.label}</b>
+            <small>просмотр расписания и статусы</small>
+          </div>
+        )}
         <div className="tile grey">
           <b>{live.length}</b>
           <small>
@@ -287,7 +362,7 @@ function Main({ session }) {
             onCreate={openNew}
             onOpen={(b) => setEditing(b)}
             onMove={move}
-            canMove={isBlocking}
+            canMove={(b) => can(user, 'move') && isBlocking(b)}
           />
         ) : (
           <DayList date={date} depts={depts} bookings={bookings} view={gridView} onOpen={(b) => setEditing(b)} onCreate={openNew} />
@@ -313,7 +388,8 @@ function Main({ session }) {
           depts={active}
           allDepts={allDepts}
           bookings={bookings}
-          employee={me}
+          user={user}
+          pricelists={config.pricelists}
           onClose={() => setEditing(null)}
           onSaved={(b) => {
             setEditing(null)
@@ -326,8 +402,7 @@ function Main({ session }) {
       {panel === 'settings' && (
         <SettingsModal
           config={config}
-          me={me}
-          onMe={saveMe}
+          user={user}
           onClose={() => setPanel(null)}
           onSaved={() => {
             setPanel(null)
@@ -346,7 +421,32 @@ function Main({ session }) {
           }}
         />
       )}
-      {panel === 'calc' && <Calculator onClose={() => setPanel(null)} />}
+      {panel === 'calc' && (
+        <Calculator
+          depts={active}
+          pricelists={config.pricelists}
+          onClose={() => setPanel(null)}
+          onBook={
+            canBook &&
+            ((preset) => {
+              setPanel(null)
+              openNew(preset)
+            })
+          }
+        />
+      )}
+      {panel === 'reports' && (
+        <ReportsModal
+          depts={active}
+          canExport={can(user, 'export')}
+          onClose={() => setPanel(null)}
+          onOpen={(b) => {
+            setPanel(null)
+            setDate(b.starts_at.slice(0, 10))
+            setEditing(b)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -357,14 +457,6 @@ function greeting() {
   if (h >= 12 && h < 17) return 'Добрый день'
   if (h >= 17 && h < 23) return 'Добрый вечер'
   return 'Доброй ночи'
-}
-
-function plural(n, one, few, many) {
-  const m10 = n % 10
-  const m100 = n % 100
-  if (m10 === 1 && m100 !== 11) return one
-  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few
-  return many
 }
 
 // Ближайший слот после текущего времени (для сегодняшнего дня)

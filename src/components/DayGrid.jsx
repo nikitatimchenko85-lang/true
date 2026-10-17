@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { STATUSES, clipToDay, fromMin, humanStamp, today } from '../lib.js'
+import { rub } from '../prices.js'
 
 const PX = 1.6 // пикселей на минуту
 const LONG_PRESS = 350
@@ -162,7 +163,7 @@ export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen,
                   if (!v) return null
                   const st = STATUSES[b.status] || STATUSES.planned
                   const h = (v.end - v.start) * PX
-                  const details = [b.work, b.tire_class, b.radius].filter(Boolean).join(' · ')
+                  const details = [b.work, b.tire_class, b.radius, b.total > 0 && rub(b.total)].filter(Boolean).join(' · ')
                   const note = [b.client_name, ...(b.tags || []), b.comment].filter(Boolean).join(' · ')
                   return (
                     <button

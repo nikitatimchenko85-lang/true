@@ -21,6 +21,8 @@ create table if not exists public.bookings (
   status text not null default 'planned'
     check (status in ('planned', 'no_show', 'cancelled', 'in_progress', 'waiting_parts', 'done')),
   created_by text,
+  items jsonb not null default '[]',   -- строки расчёта: услуга, количество, цена
+  total numeric,                       -- стоимость заявки
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   check (ends_at > starts_at),
@@ -32,6 +34,10 @@ create table if not exists public.bookings (
     tsrange(starts_at, ends_at) with &&
   ) where (status not in ('cancelled', 'no_show'))
 );
+
+-- Для баз, созданных до появления стоимости в заявке
+alter table public.bookings add column if not exists items jsonb not null default '[]';
+alter table public.bookings add column if not exists total numeric;
 
 create index if not exists bookings_time_idx on public.bookings (starts_at, ends_at);
 
