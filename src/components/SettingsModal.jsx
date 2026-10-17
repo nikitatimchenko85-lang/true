@@ -8,7 +8,7 @@ import { parseCsv, rowsToBookings } from '../importCsv.js'
 import Modal from './Modal.jsx'
 
 const HOURS = Array.from({ length: 25 }, (_, h) => h * 60)
-const COLORS = ['#16a34a', '#0891b2', '#d97706', '#7c3aed', '#db2777', '#dc2626', '#64748b', '#2563eb']
+const COLORS = ['#1fae78', '#1e9be0', '#ee6516', '#8a6cf5', '#e05a8e', '#e04f3f', '#a8a29e', '#13a8cc']
 const listToText = (l) => (l || []).join(', ')
 const textToList = (t) => t.split(',').map((x) => x.trim()).filter(Boolean)
 

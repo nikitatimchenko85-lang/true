@@ -37,3 +37,9 @@ test('виды работ по постам: портальная мойка т�
   const tires = depts.find((d) => d.id === 'tires')
   assert.deepEqual(worksFor(tires, tires.posts[0]), tires.works)
 })
+
+test('старые стандартные цвета подразделений заменяются новыми, свои — остаются', async () => {
+  const { withDefaults } = await import('../src/config.js')
+  const cfg = withDefaults({ departments: [{ ...depts[0], color: '#16a34a' }, { ...depts[1], color: '#123456' }] })
+  assert.deepEqual(cfg.departments.map((d) => d.color), ['#1fae78', '#123456'])
+})
