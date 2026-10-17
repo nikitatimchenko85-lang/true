@@ -347,6 +347,29 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .tagbar button { padding: 8px 14px; font-size: 13px; }
 .tagbar button.on { background: var(--accent); color: var(--accent-ink); }
 .presets button.on { background: var(--ink); color: var(--accent); }
+/* Сводка по записи */
+.summary-head {
+  display: grid; gap: 6px; padding: 18px; border-radius: 22px; background: var(--field);
+  box-shadow: inset 4px 0 0 var(--c);
+}
+.summary-car { font-family: var(--head-font); font-size: 22px; font-weight: 600; text-transform: uppercase; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.summary-status {
+  justify-self: start; font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+  background: color-mix(in srgb, var(--s) 18%, transparent); color: var(--s);
+}
+.summary-where { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.summary-where i { width: 10px; height: 10px; border-radius: 50%; background: var(--c); flex: none; }
+.summary-when { font-size: 15px; }
+.summary-rows { display: grid; gap: 10px; margin: 0; }
+.summary-rows div { display: grid; grid-template-columns: 120px 1fr; gap: 12px; }
+.summary-rows dt { color: var(--muted); font-size: 14px; }
+.summary-rows dd { margin: 0; font-weight: 600; white-space: pre-wrap; overflow-wrap: anywhere; }
+.summary-rows a { color: inherit; }
+.summary-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.summary-items li { display: flex; justify-content: space-between; gap: 12px; }
+.summary-items small { color: var(--muted); }
+.summary-total { border-top: 1px solid var(--line); padding-top: 8px; font-size: 17px; }
+.summary .buttons button { flex: 1; }
 /* Записать дальше — допродажа, выделена */
 .upsell .buttons button { flex: 1; }
 .chain {

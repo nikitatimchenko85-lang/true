@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ConflictError, store } from '../store.js'
 import {
   RADII, TIRE_CLASSES, bannedBrand, computeEnd, findConflict, formatDuration, formatPhone, fromMin,
-  humanStamp, nextFreeSlots, normalizePhone, nowSlot, phoneError, splitStamp, stamp, statusesFor, today, weekday, worksFor,
+  STATUSES, humanDate, humanStamp, nextFreeSlots, normalizePhone, nowSlot, phoneError, splitStamp, stamp, statusesFor, today, weekday, worksFor,
   workMinutes,
 } from '../lib.js'
 import { lineFromItem, lineSum, linesTotal, repriceLines, rub, unitPrice } from '../prices.js'
@@ -57,6 +57,8 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
   const [error, setError] = useState('')
   const [warnOk, setWarnOk] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Существующая запись сначала открывается сводкой; форма — по кнопке «Изменить»
+  const [editMode, setEditMode] = useState(isNew)
   const set = (patch) => setF((x) => ({ ...x, ...patch }))
   const formRef = useRef(null)
 
@@ -245,6 +247,8 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
   }
   const quick = list.slice(0, QUICK)
   const more = list.slice(QUICK)
+
+  if (!editMode) return <BookingSummary b={initial} dept={deptOf(initial.service_id)} canChange={canStatus} onEdit={() => setEditMode(true)} onClose={onClose} />
 
   return (
     <Modal title={isNew ? 'Новая запись' : 'Запись'} onClose={onClose}>
@@ -632,5 +636,75 @@ function BookingHistory({ id, depts }) {
         ))}
       </ul>
     </details>
+  )
+}
+
+// Сводка по записи: только то, что нужно увидеть с первого взгляда
+function BookingSummary({ b, dept, canChange, onEdit, onClose }) {
+  const st = STATUSES[b.status] || STATUSES.planned
+  const s = splitStamp(b.starts_at)
+  const e = splitStamp(b.ends_at)
+  const post = dept?.posts[b.post - 1]
+  const items = (b.items || []).filter((l) => l.name)
+  const when = `${weekday(s.date)}, ${humanDate(s.date)} · ${fromMin(s.min)}–${e.date === s.date ? fromMin(e.min) : humanStamp(b.ends_at)}`
+  const rows = [
+    ['Клиент', b.client_name],
+    ['Телефон', b.phone && <a href={`tel:${normalizePhone(b.phone)}`}>{formatPhone(b.phone)}</a>],
+    ['Класс, радиус', [b.tire_class, b.radius].filter(Boolean).join(', ')],
+    ['Работа', !items.length && b.work],
+    ['Исполнитель', b.executor],
+    ['Комментарий', b.comment],
+  ].filter(([, v]) => v)
+  return (
+    <Modal title="Запись" onClose={onClose}>
+      <div className="form summary">
+        <div className="summary-head" style={{ '--c': dept?.color, '--s': st.color }}>
+          <b className="summary-car">{b.car}</b>
+          <span className="summary-status">{st.label}</span>
+          <span className="summary-where">
+            <i /> {dept?.name}
+            {post && ` · ${post.name}`}
+          </span>
+          <span className="summary-when">{when}</span>
+        </div>
+        {rows.length > 0 && (
+          <dl className="summary-rows">
+            {rows.map(([k, v]) => (
+              <div key={k}>
+                <dt>{k}</dt>
+                <dd>{v}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        {items.length > 0 && (
+          <ul className="summary-items">
+            {items.map((l, i) => (
+              <li key={i}>
+                <span>
+                  {l.name}
+                  {Number(l.qty) > 1 && <small> × {l.qty}</small>}
+                </span>
+                <b>{l.price != null ? rub(lineSum(l)) : '—'}</b>
+              </li>
+            ))}
+            <li className="summary-total">
+              <span>Итого</span>
+              <b>{rub(b.total ?? linesTotal(items))}</b>
+            </li>
+          </ul>
+        )}
+        <div className="buttons">
+          {canChange && (
+            <button type="button" className="primary" onClick={onEdit}>
+              Изменить
+            </button>
+          )}
+          <button type="button" onClick={onClose}>
+            Закрыть
+          </button>
+        </div>
+      </div>
+    </Modal>
   )
 }
