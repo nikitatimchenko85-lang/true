@@ -4,7 +4,7 @@ import {
   addDays, computeEnd, dateKey, findConflict, humanDate, humanStamp, isBlocking, nextFreeSlots, parseDate, plural, stamp,
   splitStamp, today, unionView, weekday, workMinutes,
 } from './lib.js'
-import { ROLES, can, deptAllowed } from './access.js'
+import { ROLES, can, deptAllowed, effectiveUser } from './access.js'
 import Icon from './components/Icon.jsx'
 import Login from './components/Login.jsx'
 import PinLogin from './components/PinLogin.jsx'
@@ -112,7 +112,7 @@ function Main({ session }) {
 
   if (!config) return <div className="center muted">{error || 'Загрузка…'}</div>
 
-  const user = unlocked && config.users.find((u) => u.id === userId)
+  const user = unlocked && effectiveUser(config, config.users.find((u) => u.id === userId))
   if (!user) {
     return (
       <PinLogin
@@ -389,6 +389,7 @@ function Main({ session }) {
           allDepts={allDepts}
           bookings={bookings}
           user={user}
+          users={config.users}
           pricelists={config.pricelists}
           onClose={() => setEditing(null)}
           onSaved={(b) => {

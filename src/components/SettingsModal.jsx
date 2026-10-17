@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { store } from '../store.js'
 import { RADII, fromMin, uid } from '../lib.js'
-import { PERMS, ROLES, can, rolePerms } from '../access.js'
+import { PERMS, ROLES, can, defaultRoles, rolePerms } from '../access.js'
 import { DEFAULT_PRICELISTS, PRICE_CLASSES } from '../prices.js'
 import { download, parsePricelist, pricelistCsv } from '../exports.js'
 import { parseCsv, rowsToBookings } from '../importCsv.js'
@@ -15,6 +15,7 @@ const textToList = (t) => t.split(',').map((x) => x.trim()).filter(Boolean)
 const TABS = [
   ['depts', 'Подразделения', 'settings'],
   ['users', 'Пользователи', 'users'],
+  ['roles', 'Права ролей', 'users'],
   ['prices', 'Прайс-листы', 'pricelists'],
   ['import', 'Импорт', 'settings'],
 ]
@@ -74,6 +75,7 @@ export default function SettingsModal({ config, user, onClose, onSaved }) {
         <form className="form" onSubmit={save}>
           {tab === 'depts' && <DeptsTab cfg={cfg} setCfg={setCfg} />}
           {tab === 'users' && <UsersTab cfg={cfg} setCfg={setCfg} me={user} />}
+          {tab === 'roles' && <RolesTab cfg={cfg} setCfg={setCfg} />}
           {tab === 'prices' && <PricesTab cfg={cfg} setCfg={setCfg} />}
           {error && <div className="err">{error}</div>}
           <div className="buttons sticky">
@@ -223,7 +225,7 @@ function UsersTab({ cfg, setCfg, me }) {
         настроить вручную. Руководитель может всё.
       </p>
       {cfg.users.map((u) => {
-        const perms = u.perms ?? rolePerms(u.role)
+        const perms = u.perms ?? rolePerms(u.role, cfg.roles)
         return (
           <div key={u.id} className="dept-card">
             <div className="user-head">
@@ -322,6 +324,64 @@ function UsersTab({ cfg, setCfg, me }) {
   )
 }
 
+/* ---------- Права ролей ---------- */
+
+function RolesTab({ cfg, setCfg }) {
+  const roles = ['owner', 'admin', 'master']
+  const toggle = (role, perm) => {
+    const cur = rolePerms(role, cfg.roles)
+    const next = cur.includes(perm) ? cur.filter((x) => x !== perm) : [...cur, perm]
+    setCfg((c) => ({ ...c, roles: { ...c.roles, [role]: next } }))
+  }
+  const own = cfg.users.filter((u) => u.role !== 'owner' && u.perms)
+  return (
+    <>
+      <p className="muted small">
+        Что может каждая роль. Изменения действуют на всех пользователей с этой ролью, кроме тех, кому права настроены
+        вручную во вкладке «Пользователи».
+      </p>
+      <div className="rtable-wrap">
+        <table className="rtable roles">
+          <thead>
+            <tr>
+              <th />
+              {roles.map((r) => (
+                <th key={r}>
+                  <span className="full">{ROLES[r].label}</span>
+                  <span className="short">{ROLES[r].short}</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {PERMS.map(([k, label]) => (
+              <tr key={k}>
+                <td>{label}</td>
+                {roles.map((r) => (
+                  <td key={r}>
+                    <input
+                      type="checkbox"
+                      checked={r === 'owner' || rolePerms(r, cfg.roles).includes(k)}
+                      disabled={r === 'owner'}
+                      onChange={() => toggle(r, k)}
+                      aria-label={`${ROLES[r].label}: ${label}`}
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="muted small">Руководителю доступно всё, чтобы нельзя было случайно закрыть себе настройки.</p>
+      {own.length > 0 && <p className="muted small">Права настроены вручную: {own.map((u) => u.name).join(', ')}.</p>}
+      <div className="presets">
+        <button type="button" onClick={() => setCfg((c) => ({ ...c, roles: defaultRoles() }))}>Вернуть стандартные права</button>
+      </div>
+    </>
+  )
+}
+
 /* ---------- Прайс-листы ---------- */
 
 const KINDS = { fixed: 'Одна цена', radius: 'По радиусу', class_radius: 'Класс × радиус' }
@@ -334,6 +394,7 @@ function PricesTab({ cfg, setCfg }) {
   const [msg, setMsg] = useState('')
   const list = cfg.pricelists[deptId] || []
   const dept = depts.find((d) => d.id === deptId)
+  const sized = !!dept?.tire_fields // цена по радиусу и классу — только там, где в заявке есть класс и радиус
   const setList = (l) => setCfg((c) => ({ ...c, pricelists: { ...c.pricelists, [deptId]: l } }))
   const upd = (i, patch) => setList(list.map((x, j) => (j === i ? { ...x, ...patch } : x)))
   const move = (i, dir) => {
@@ -378,8 +439,8 @@ function PricesTab({ cfg, setCfg }) {
         <div className="dept-card" key={it.id}>
           <div className="price-head">
             <input value={it.name} onChange={(e) => upd(i, { name: e.target.value })} placeholder="Название услуги" aria-label="Название" />
-            {it.kind === 'fixed' ? (
-              <input type="number" min="0" value={it.price ?? ''} onChange={(e) => upd(i, { price: n(e.target.value) })} placeholder="₽" aria-label="Цена" />
+            {it.kind === 'fixed' || !sized ? (
+              <input type="number" min="0" value={it.price ?? ''} onChange={(e) => upd(i, { price: n(e.target.value), kind: 'fixed' })} placeholder="₽" aria-label="Цена" />
             ) : (
               <button type="button" onClick={() => setOpen(open === it.id ? null : it.id)}>
                 {open === it.id ? 'Свернуть' : 'Цены'}
@@ -391,13 +452,15 @@ function PricesTab({ cfg, setCfg }) {
           </div>
           {open === it.id && (
             <div className="dept-body">
-              <div className="row3">
-                <label>
-                  Тип цены
-                  <select value={it.kind} onChange={(e) => setKind(i, e.target.value)}>
-                    {Object.entries(KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </select>
-                </label>
+              <div className={sized ? 'row3' : 'row2'}>
+                {sized && (
+                  <label>
+                    Тип цены
+                    <select value={it.kind} onChange={(e) => setKind(i, e.target.value)}>
+                      {Object.entries(KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    </select>
+                  </label>
+                )}
                 <label>
                   Единица
                   <input value={it.unit || ''} onChange={(e) => upd(i, { unit: e.target.value })} />
@@ -411,7 +474,7 @@ function PricesTab({ cfg, setCfg }) {
                 <input type="checkbox" checked={!!it.from} onChange={(e) => upd(i, { from: e.target.checked })} />
                 Цена «от»
               </label>
-              {it.kind === 'radius' && (
+              {sized && it.kind === 'radius' && (
                 <div className="radius-grid">
                   {RADII.map((r) => (
                     <label key={r}>
@@ -421,7 +484,7 @@ function PricesTab({ cfg, setCfg }) {
                   ))}
                 </div>
               )}
-              {it.kind === 'class_radius' && (
+              {sized && it.kind === 'class_radius' && (
                 <div className="matrix">
                   <table>
                     <thead>

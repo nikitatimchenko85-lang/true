@@ -53,6 +53,7 @@ export default function DayList({ date, depts, bookings, view, onOpen, onCreate 
                   </a>
                 )}
                 {[b.work, b.tire_class, b.radius].filter(Boolean).join(' · ')}
+                {b.executor && <span className="muted">Исполнитель: {b.executor}</span>}
               </div>
               {(b.tags?.length > 0 || b.comment) && (
                 <div className="r-sub">

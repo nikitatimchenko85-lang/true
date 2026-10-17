@@ -11,7 +11,10 @@ import Modal from './Modal.jsx'
 const QUICK = 8 // сколько услуг из прайса показывать кнопками
 
 // Форма записи. Обязательна только машина; пост и время приходят из места касания или ближайшего окна.
-export default function BookingModal({ initial, depts, allDepts, bookings, user, pricelists, onClose, onSaved, onChain }) {
+// На телефоне поле не фокусируем: клавиатура закрывает форму, сотрудник сам нажмёт в поле
+const finePointer = () => typeof window !== 'undefined' && window.matchMedia?.('(pointer: fine)').matches
+
+export default function BookingModal({ initial, depts, allDepts, bookings, user, users = [], pricelists, onClose, onSaved, onChain }) {
   const isNew = !initial.id
   const deptOf = (id) => allDepts.find((d) => d.id === id)
   const canEdit = can(user, 'book')
@@ -43,6 +46,7 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
       tags: [],
       comment: '',
       status: 'planned',
+      executor: '',
       items: initial.items || [],
     }
   })
@@ -244,7 +248,7 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
                 onFocus={() => setCarFocus(true)}
                 onBlur={() => setTimeout(() => setCarFocus(false), 150)}
                 placeholder="Kia Rio 123"
-                autoFocus={isNew}
+                autoFocus={isNew && finePointer()}
                 autoComplete="off"
                 required
               />
@@ -398,6 +402,12 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
             </div>
           )}
 
+          <ExecutorField
+            value={f.executor || ''}
+            onChange={(executor) => set({ executor })}
+            masters={users.filter((u) => u.role === 'master' && (!u.depts?.length || u.depts.includes(dept.id))).map((u) => u.name)}
+          />
+
           {dept.works?.length > 0 && list.length === 0 && <WorkChips works={dept.works} value={f.work} onChange={(work) => set({ work })} />}
 
           {dept.tire_fields && (
@@ -529,6 +539,7 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
         )}
 
         {!isNew && f.created_by && <p className="muted small">Записал(а): {f.created_by}</p>}
+        {!canEdit && f.executor && <p className="muted small">Исполнитель: {f.executor}</p>}
         {!isNew && canEdit && otherDepts.length > 0 && (
           <div className="chain">
             <span className="muted small">Записать эту машину дальше:</span>
@@ -571,6 +582,28 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
         </div>
       </form>
     </Modal>
+  )
+}
+
+// Исполнитель: мастера этого подразделения кнопками или имя вручную
+function ExecutorField({ value, onChange, masters }) {
+  const [own, setOwn] = useState(() => !!value && !masters.includes(value))
+  return (
+    <div className="field">
+      <span className="lbl">Исполнитель</span>
+      <div className="presets">
+        {masters.map((m) => (
+          <button type="button" key={m} className={value === m ? 'on' : ''} onClick={() => (setOwn(false), onChange(value === m ? '' : m))}>
+            {m}
+          </button>
+        ))}
+        <button type="button" className={own ? 'on' : ''} onClick={() => (setOwn(!own), onChange(''))}>
+          {masters.length ? 'Другой' : 'Указать'}
+        </button>
+      </div>
+      {own && <input value={value} onChange={(e) => onChange(e.target.value)} placeholder="Имя исполнителя" aria-label="Исполнитель" />}
+      {!masters.length && !own && <span className="muted small">Мастеров можно добавить в Настройки → Пользователи, тогда они появятся здесь кнопками.</span>}
+    </div>
   )
 }
 

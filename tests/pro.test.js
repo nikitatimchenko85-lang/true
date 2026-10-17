@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DEFAULT_CONFIG, nextFreeSlots } from '../src/lib.js'
 import { DEFAULT_PRICELISTS, lineFromItem, linesTotal, repriceLines } from '../src/prices.js'
-import { can, checkPin, deptAllowed, hashPin } from '../src/access.js'
+import { can, checkPin, deptAllowed, effectiveUser, hashPin } from '../src/access.js'
 import { withDefaults } from '../src/config.js'
 import { summarize } from '../src/analytics.js'
 import { bookingsCsv, parsePricelist, pricelistCsv, sheetCsv } from '../src/exports.js'
@@ -98,4 +98,17 @@ test('прайс-лист: выгрузка и загрузка без поте�
   const { list: back, errors } = parsePricelist(parseCsv(pricelistCsv(list)))
   assert.deepEqual(errors, [])
   assert.deepEqual(back, list.map((i) => ({ from: false, ...i })))
+})
+
+test('права ролей из настроек и исполнитель в отчёте', () => {
+  const cfg = withDefaults({ admins: ['Данилов'], roles: { master: ['status', 'reports'] } })
+  const master = effectiveUser(cfg, { id: 'm', name: 'Петров', role: 'master', perms: null })
+  assert.ok(can(master, 'reports') && !can(master, 'book'))
+  assert.ok(can(effectiveUser(cfg, cfg.users[1]), 'book'), 'у администратора стандартные права')
+  assert.ok(!can(effectiveUser(cfg, { id: 'x', role: 'master', perms: ['book'] }), 'reports'), 'свои права важнее роли')
+  assert.ok(can(effectiveUser(cfg, cfg.users[0]), 'users'))
+  const b = { id: '1', service_id: 'tires', post: 1, starts_at: '2026-10-17T10:00', ends_at: '2026-10-17T11:00', status: 'planned', total: 1000, executor: 'Петров' }
+  const s = summarize([b, { ...b, id: '2', executor: '' }], [tires], '2026-10-17', '2026-10-17')
+  assert.deepEqual(s.byExecutor.map((x) => [x.name, x.count, x.revenue]), [['Петров', 1, 1000]])
+  assert.ok(bookingsCsv([b], [tires]).includes('Петров'))
 })

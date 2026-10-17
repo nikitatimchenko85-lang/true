@@ -22,7 +22,7 @@ export function bookingsCsv(bookings, depts) {
   const byId = Object.fromEntries(depts.map((d) => [d.id, d]))
   const rows = [[
     'Дата', 'Начало', 'Окончание', 'Подразделение', 'Пост', 'Машина', 'Клиент', 'Телефон', 'Вид работы', 'Класс',
-    'Радиус', 'Услуги', 'Сумма, ₽', 'Пометки', 'Комментарий', 'Статус', 'Администратор', 'Создана',
+    'Радиус', 'Услуги', 'Сумма, ₽', 'Пометки', 'Комментарий', 'Статус', 'Администратор', 'Исполнитель', 'Создана',
   ]]
   for (const b of [...bookings].sort((x, y) => (x.starts_at < y.starts_at ? -1 : 1))) {
     const d = byId[b.service_id]
@@ -30,7 +30,7 @@ export function bookingsCsv(bookings, depts) {
       ruDate(b.starts_at.slice(0, 10)), time(b.starts_at), `${ruDate(b.ends_at.slice(0, 10))} ${time(b.ends_at)}`,
       d?.name || b.service_id, d?.posts[b.post - 1]?.name || `Пост ${b.post}`, b.car, b.client_name, b.phone, b.work,
       b.tire_class, b.radius, itemsText(b.items), num(b.total), (b.tags || []).join(', '), b.comment,
-      STATUSES[b.status]?.label || b.status, b.created_by, b.created_at ? ruDate(b.created_at.slice(0, 10)) : '',
+      STATUSES[b.status]?.label || b.status, b.created_by, b.executor, b.created_at ? ruDate(b.created_at.slice(0, 10)) : '',
     ])
   }
   return toCsv(rows)
