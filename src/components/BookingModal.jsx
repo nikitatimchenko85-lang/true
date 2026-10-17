@@ -191,13 +191,14 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
     setCarHints([])
   }
 
-  const save = async (e) => {
+  // then — что сделать после сохранения (например, сразу открыть следующую запись этой машины)
+  const save = async (e, then) => {
     e?.preventDefault()
     setError('')
     const fail = (msg) => (haptic('error'), setError(msg))
     if (!canEdit) {
       if (!canStatus || f.status === initial.status) return onClose()
-      return persist({ ...initial, status: f.status })
+      return persist({ ...initial, status: f.status }, then)
     }
     if (!f.car?.trim()) return fail('Укажите машину')
     if (f.ends_at <= f.starts_at) return fail('Окончание должно быть позже начала')
@@ -218,12 +219,14 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
       items: clean,
       total: clean.length ? linesTotal(clean) : null,
       created_by: f.created_by || user?.name || null,
-    })
+    }, then)
   }
-  const persist = async (row) => {
+  const persist = async (row, then) => {
     setBusy(true)
     try {
-      onSaved(await store.saveBooking(row, user?.name))
+      const saved = await store.saveBooking(row, user?.name)
+      onSaved(saved)
+      then?.(saved)
     } catch (err) {
       setError(err instanceof ConflictError ? (err.booking ? conflictText(err.booking, dept) : err.message) : 'Ошибка: ' + err.message)
       setBusy(false)
@@ -545,11 +548,11 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
 
         {!isNew && f.created_by && <p className="muted small">Записал(а): {f.created_by}</p>}
         {!canEdit && f.executor && <p className="muted small">Исполнитель: {f.executor}</p>}
-        {!isNew && canEdit && otherDepts.length > 0 && (
+        {canEdit && otherDepts.length > 0 && (
           // Допродажа: следующая услуга для той же машины, сразу после этой записи
           <div className="chain">
             <b>Записать эту машину дальше</b>
-            <span className="muted small">Предложите клиенту следующую услугу — время подберётся сразу после этой записи.</span>
+            <span className="muted small">Предложите клиенту следующую услугу — эта запись сохранится, а следующая откроется со временем сразу после неё.</span>
             <div className="chain-btns">
               {otherDepts.map((d) => {
                 const slot = nextFreeSlots(bookings, d, f.ends_at, { count: 1 })[0]
@@ -560,7 +563,9 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
                     key={d.id}
                     style={{ '--c': d.color }}
                     onClick={() =>
-                      onChain({ service_id: d.id, ...at, post: slot?.post, car: f.car, client_name: f.client_name, phone: f.phone, tire_class: f.tire_class, radius: f.radius })
+                      save(null, (b) =>
+                        onChain({ service_id: d.id, ...at, post: slot?.post, car: b.car, client_name: b.client_name, phone: b.phone, tire_class: b.tire_class, radius: b.radius }),
+                      )
                     }
                   >
                     <i />
