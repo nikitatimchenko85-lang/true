@@ -17,7 +17,7 @@ const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 const BOOKING_FIELDS = [
   'service_id', 'post', 'starts_at', 'ends_at', 'car', 'client_name', 'phone', 'work',
-  'tire_class', 'radius', 'tags', 'comment', 'status', 'created_by', 'items', 'total',
+  'tire_class', 'radius', 'tags', 'comment', 'status', 'created_by', 'items', 'total', 'executor',
 ]
 
 const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => k in obj).map((k) => [k, obj[k]]))

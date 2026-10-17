@@ -302,7 +302,7 @@ input[type='color'] { padding: 4px; width: 48px; border-radius: 14px; }
   .tabs button { padding: 10px 16px; }
   .row2, .row3 { grid-template-columns: 1fr; }
   .grid { grid-template-columns: 48px repeat(var(--cols), minmax(132px, 1fr)); }
-  .grid-wrap { border-radius: 26px; max-height: calc(100vh - 200px); }
+  .grid-wrap { border-radius: 26px; max-height: calc(100dvh - 104px - env(safe-area-inset-bottom)); }
   .list .row { padding: 14px 16px; gap: 12px; }
   .bottomnav {
     display: flex; justify-content: space-between; gap: 6px;
@@ -531,3 +531,28 @@ button.primary.big { padding: 16px; font-size: 16px; }
 }
 .more summary { cursor: pointer; font-size: 13px; color: var(--muted); font-weight: 600; margin-bottom: 8px; }
 .more summary b { color: var(--text); }
+
+/* Масштаб: страница не зумится, щипок меняет только масштаб сетки */
+html, body { touch-action: pan-x pan-y; }
+.app { overflow-x: clip; }
+.grid-wrap { touch-action: pan-x pan-y; overscroll-behavior: contain; }
+.grid-wrap.compact .booking { padding: 2px 8px; font-size: 11px; border-radius: 10px; }
+.grid-wrap.compact .b-name { font-size: 12px; }
+@media (max-width: 700px) {
+  /* 16px — иначе iPhone приближает страницу при касании поля */
+  input, select, textarea { font-size: 16px; }
+}
+.hero .greet { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  .greet { font-size: min(30px, 7.2vw); }
+}
+button, a, label { -webkit-tap-highlight-color: transparent; }
+.rtable.roles th, .rtable.roles td { text-align: center; }
+.rtable.roles th:first-child, .rtable.roles td:first-child { text-align: left; }
+.rtable.roles .short { display: none; }
+@media (max-width: 700px) {
+  .rtable.roles { font-size: 14px; }
+  .rtable.roles th, .rtable.roles td { padding: 8px 4px; }
+  .rtable.roles .full { display: none; }
+  .rtable.roles .short { display: inline; }
+}

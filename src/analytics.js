@@ -61,6 +61,7 @@ export function summarize(bookings, depts, from, to) {
   }
 
   const byAdmin = group('admin', (b) => [[b.created_by || 'Не указан', { revenue: money(b) }]])
+  const byExecutor = group('executor', (b) => (b.executor ? [[b.executor, { revenue: money(b) }]] : []))
   const byService = group('service', (b) =>
     paid(b) ? (b.items || []).map((l) => [l.name, { qty: Number(l.qty) || 0, revenue: lineSum(l) }]) : [],
   )
@@ -79,6 +80,7 @@ export function summarize(bookings, depts, from, to) {
     byDay,
     byDept,
     byAdmin,
+    byExecutor,
     byService,
     byWork,
     noShows: noShow.sort((a, b) => (a.starts_at < b.starts_at ? 1 : -1)),

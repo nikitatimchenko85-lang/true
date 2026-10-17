@@ -1,15 +1,109 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { STATUSES, clipToDay, fromMin, humanStamp, today } from '../lib.js'
 import { rub } from '../prices.js'
 
-const PX = 1.6 // пикселей на минуту
+const MAX_PX = 1.6 // пикселей на минуту — самый крупный масштаб
+const HEAD = 72 // высота шапки сетки: подразделение + посты
 const LONG_PRESS = 350
+
+const readPx = () => {
+  try {
+    return Number(localStorage.getItem('grid.px')) || MAX_PX
+  } catch {
+    return MAX_PX
+  }
+}
 
 // Сетка дня: колонки — посты выбранных подразделений.
 // Запись можно перетащить на другое время или пост того же подразделения
 // (мышью сразу, на телефоне — удержать палец).
 export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen, onMove, canMove }) {
   const { open_min, close_min, step } = view
+  const wrapRef = useRef(null)
+
+  // Масштаб: щипок двумя пальцами (или Ctrl + колесо/трекпад). Мельче всего — весь день в окне.
+  const [px, setPx] = useState(readPx)
+  const [minPx, setMinPx] = useState(0.3)
+  const PX = Math.max(minPx, Math.min(MAX_PX, px))
+  const zoom = useRef({ px: PX, min: minPx, anchor: null })
+  zoom.current.px = PX
+  zoom.current.min = minPx
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    // по max-height окна сетки, а не по текущей высоте — она сама зависит от масштаба
+    const fit = () => {
+      const h = parseFloat(getComputedStyle(el).maxHeight) || el.clientHeight
+      setMinPx(Math.min(MAX_PX, Math.max(0.2, (h - HEAD - 12) / (close_min - open_min))))
+    }
+    fit()
+    window.addEventListener('resize', fit)
+    return () => window.removeEventListener('resize', fit)
+  }, [open_min, close_min, depts.length])
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const clamp = (v) => Math.max(zoom.current.min, Math.min(MAX_PX, v))
+    const save = () => {
+      try {
+        localStorage.setItem('grid.px', String(zoom.current.px))
+      } catch {}
+    }
+    // Точка под пальцами остаётся на месте
+    const zoomAt = (clientY, next) => {
+      const cy = clientY - el.getBoundingClientRect().top
+      const minute = (el.scrollTop + cy - HEAD) / zoom.current.px
+      zoom.current.anchor = { minute, cy }
+      setPx(clamp(next))
+    }
+    let pinch = null
+    const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)
+    const midY = (t) => (t[0].clientY + t[1].clientY) / 2
+    const onStart = (e) => {
+      if (e.touches.length !== 2) return
+      e.preventDefault()
+      pinch = { d: dist(e.touches), px: zoom.current.px }
+    }
+    const onMove = (e) => {
+      if (!pinch || e.touches.length !== 2) return
+      e.preventDefault()
+      zoomAt(midY(e.touches), (pinch.px * dist(e.touches)) / pinch.d)
+    }
+    const onEnd = (e) => {
+      if (pinch && e.touches.length < 2) {
+        pinch = null
+        save()
+      }
+    }
+    const onWheel = (e) => {
+      if (!e.ctrlKey) return
+      e.preventDefault()
+      zoomAt(e.clientY, zoom.current.px * Math.exp(-e.deltaY / 150))
+      save()
+    }
+    el.addEventListener('touchstart', onStart, { passive: false })
+    el.addEventListener('touchmove', onMove, { passive: false })
+    el.addEventListener('touchend', onEnd)
+    el.addEventListener('touchcancel', onEnd)
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => {
+      el.removeEventListener('touchstart', onStart)
+      el.removeEventListener('touchmove', onMove)
+      el.removeEventListener('touchend', onEnd)
+      el.removeEventListener('touchcancel', onEnd)
+      el.removeEventListener('wheel', onWheel)
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    const a = zoom.current.anchor
+    if (!a || !wrapRef.current) return
+    wrapRef.current.scrollTop = a.minute * PX - a.cy + HEAD
+    zoom.current.anchor = null
+  }, [PX])
+
   const height = (close_min - open_min) * PX
   const nowMin = useNowMin()
   const [drag, setDrag] = useState(null) // { b, col, min, ok }
@@ -108,7 +202,7 @@ export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen,
   }
 
   return (
-    <div className="grid-wrap">
+    <div className={`grid-wrap ${PX < 0.9 ? 'compact' : ''}`} ref={wrapRef}>
       <div className="grid" style={{ '--cols': columns.length }}>
         <div className="corner" />
         {depts.map((d) => (
@@ -147,7 +241,7 @@ export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen,
               onClick={(e) => clickColumn(e, col)}
               title="Нажмите на свободное место, чтобы записать"
             >
-              {lines.map((m) => (
+              {lines.filter((m) => PX >= 0.9 || m % 60 === 0).map((m) => (
                 <div key={m} className={`line ${m % 60 === 0 ? 'hour' : ''}`} style={{ top: (m - open_min) * PX }} />
               ))}
               {outside.map((o) => (
@@ -164,7 +258,7 @@ export default function DayGrid({ date, depts, bookings, view, onCreate, onOpen,
                   const st = STATUSES[b.status] || STATUSES.planned
                   const h = (v.end - v.start) * PX
                   const details = [b.work, b.tire_class, b.radius, b.total > 0 && rub(b.total)].filter(Boolean).join(' · ')
-                  const note = [b.client_name, ...(b.tags || []), b.comment].filter(Boolean).join(' · ')
+                  const note = [b.executor && `▸ ${b.executor}`, b.client_name, ...(b.tags || []), b.comment].filter(Boolean).join(' · ')
                   return (
                     <button
                       key={b.id}

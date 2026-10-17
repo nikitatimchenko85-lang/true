@@ -21,6 +21,7 @@ create table if not exists public.bookings (
   status text not null default 'planned'
     check (status in ('planned', 'no_show', 'cancelled', 'in_progress', 'waiting_parts', 'done')),
   created_by text,
+  executor text,                       -- исполнитель (мастер)
   items jsonb not null default '[]',   -- строки расчёта: услуга, количество, цена
   total numeric,                       -- стоимость заявки
   created_at timestamptz not null default now(),
@@ -38,6 +39,7 @@ create table if not exists public.bookings (
 -- Для баз, созданных до появления стоимости в заявке
 alter table public.bookings add column if not exists items jsonb not null default '[]';
 alter table public.bookings add column if not exists total numeric;
+alter table public.bookings add column if not exists executor text;
 
 create index if not exists bookings_time_idx on public.bookings (starts_at, ends_at);
 

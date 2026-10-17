@@ -56,6 +56,9 @@ export default function ReportsModal({ depts, canExport, onClose, onOpen }) {
       ['Администратор', 'Записей', 'Выручка, ₽'],
       ...s.byAdmin.map((a) => [a.name, a.count, a.revenue]),
       [],
+      ['Исполнитель', 'Записей', 'Выручка, ₽'],
+      ...s.byExecutor.map((a) => [a.name, a.count, a.revenue]),
+      [],
       ['Услуга', 'Кол-во', 'Выручка, ₽'],
       ...s.byService.map((x) => [x.name, x.qty, x.revenue]),
     ])
@@ -168,6 +171,7 @@ export default function ReportsModal({ depts, canExport, onClose, onOpen }) {
               />
             )}
             <Table title="По администраторам" head={['', 'Записей', 'Выручка']} rows={s.byAdmin.map((a) => [a.name, a.count, rub(a.revenue)])} />
+            <Table title="По исполнителям" head={['', 'Записей', 'Выручка']} rows={s.byExecutor.map((a) => [a.name, a.count, rub(a.revenue)])} />
             {s.byService.length > 0 ? (
               <Table title="Услуги" head={['', 'Кол-во', 'Выручка']} rows={s.byService.slice(0, 15).map((x) => [x.name, x.qty, rub(x.revenue)])} />
             ) : (

@@ -14,12 +14,17 @@ export const PERMS = [
 ]
 
 export const ROLES = {
-  owner: { label: 'Руководитель', perms: PERMS.map(([k]) => k) },
-  admin: { label: 'Администратор', perms: ['book', 'status', 'move', 'price', 'reports', 'export'] },
-  master: { label: 'Мастер', perms: ['status'] },
+  owner: { label: 'Руководитель', short: 'Руков.', perms: PERMS.map(([k]) => k) },
+  admin: { label: 'Администратор', short: 'Админ.', perms: ['book', 'status', 'move', 'price', 'reports', 'export'] },
+  master: { label: 'Мастер', short: 'Мастер', perms: ['status'] },
 }
 
-export const rolePerms = (role) => ROLES[role]?.perms || []
+// roles — права ролей из настроек ({ admin: [...], master: [...] }), иначе стандартные
+export const rolePerms = (role, roles) => roles?.[role] ?? ROLES[role]?.perms ?? []
+export const defaultRoles = () => ({ admin: [...ROLES.admin.perms], master: [...ROLES.master.perms] })
+
+// Пользователь с правами, которые действуют сейчас: свои, если заданы, иначе права роли из настроек
+export const effectiveUser = (cfg, u) => u && { ...u, perms: u.role === 'owner' ? null : u.perms ?? rolePerms(u.role, cfg.roles) }
 export const userPerms = (user) => (user?.role === 'owner' ? ROLES.owner.perms : user?.perms ?? rolePerms(user?.role))
 
 // Руководитель может всё — чтобы нельзя было случайно запереть себя
