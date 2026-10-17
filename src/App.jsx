@@ -17,6 +17,7 @@ import Calculator from './components/Calculator.jsx'
 import ReportsModal from './components/ReportsModal.jsx'
 import JournalModal from './components/JournalModal.jsx'
 import VersionsModal from './components/VersionsModal.jsx'
+import UpsellModal from './components/UpsellModal.jsx'
 import { CHANGELOG, VERSION } from './changelog.js'
 
 const pref = (k, fallback) => {
@@ -48,6 +49,7 @@ export default function App() {
   const [view, setView] = useState(() => pref('view', 'grid'))
   const [deptId, setDeptId] = useState(() => pref('dept', 'tires'))
   const [editing, setEditing] = useState(null)
+  const [upsell, setUpsell] = useState(null) // новая запись, после которой предлагаем следующую услугу
   const [panel, setPanel] = useState(null) // settings | search | calc | reports | journal | versions
   // Кто работает: вход по PIN, экран блокируется после простоя
   const [userId, setUserId] = useState(() => pref('pin.user', ''))
@@ -417,13 +419,25 @@ export default function App() {
           users={config.users}
           pricelists={config.pricelists}
           onClose={() => setEditing(null)}
-          onSaved={(b) => {
+          onSaved={(b, created) => {
             haptic('success')
             setEditing(null)
             setDate(b.starts_at.slice(0, 10))
             load()
+            if (created && active.some((d) => d.id !== b.service_id)) setUpsell(b)
           }}
-          onChain={openNew}
+        />
+      )}
+      {upsell && (
+        <UpsellModal
+          booking={upsell}
+          depts={active}
+          bookings={bookings}
+          onClose={() => setUpsell(null)}
+          onPick={(preset) => {
+            setUpsell(null)
+            openNew(preset)
+          }}
         />
       )}
       {panel === 'settings' && (

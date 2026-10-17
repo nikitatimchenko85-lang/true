@@ -17,7 +17,7 @@ const QUICK = 8 // сколько услуг из прайса показыва�
 // На телефоне поле не фокусируем: клавиатура закрывает форму, сотрудник сам нажмёт в поле
 const finePointer = () => typeof window !== 'undefined' && window.matchMedia?.('(pointer: fine)').matches
 
-export default function BookingModal({ initial, depts, allDepts, bookings, user, users = [], pricelists, onClose, onSaved, onChain }) {
+export default function BookingModal({ initial, depts, allDepts, bookings, user, users = [], pricelists, onClose, onSaved }) {
   const isNew = !initial.id
   const deptOf = (id) => allDepts.find((d) => d.id === id)
   const canEdit = can(user, 'book')
@@ -191,14 +191,13 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
     setCarHints([])
   }
 
-  // then — что сделать после сохранения (например, сразу открыть следующую запись этой машины)
-  const save = async (e, then) => {
+  const save = async (e) => {
     e?.preventDefault()
     setError('')
     const fail = (msg) => (haptic('error'), setError(msg))
     if (!canEdit) {
       if (!canStatus || f.status === initial.status) return onClose()
-      return persist({ ...initial, status: f.status }, then)
+      return persist({ ...initial, status: f.status })
     }
     if (!f.car?.trim()) return fail('Укажите машину')
     if (f.ends_at <= f.starts_at) return fail('Окончание должно быть позже начала')
@@ -219,14 +218,13 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
       items: clean,
       total: clean.length ? linesTotal(clean) : null,
       created_by: f.created_by || user?.name || null,
-    }, then)
+    })
   }
-  const persist = async (row, then) => {
+  const persist = async (row) => {
     setBusy(true)
     try {
       const saved = await store.saveBooking(row, user?.name)
-      onSaved(saved)
-      then?.(saved)
+      onSaved(saved, !row.id)
     } catch (err) {
       setError(err instanceof ConflictError ? (err.booking ? conflictText(err.booking, dept) : err.message) : 'Ошибка: ' + err.message)
       setBusy(false)
@@ -241,7 +239,6 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
     }
   }
 
-  const otherDepts = depts.filter((d) => d.id !== f.service_id)
   const slotLabel = (s) => {
     const { date, min } = splitStamp(s.starts_at)
     return `${date === start.date ? '' : weekday(date) + ' '}${fromMin(min)}`
@@ -548,37 +545,6 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
 
         {!isNew && f.created_by && <p className="muted small">Записал(а): {f.created_by}</p>}
         {!canEdit && f.executor && <p className="muted small">Исполнитель: {f.executor}</p>}
-        {canEdit && otherDepts.length > 0 && (
-          // Допродажа: следующая услуга для той же машины, сразу после этой записи
-          <div className="chain">
-            <b>Записать эту машину дальше</b>
-            <span className="muted small">Предложите клиенту следующую услугу — эта запись сохранится, а следующая откроется со временем сразу после неё.</span>
-            <div className="chain-btns">
-              {otherDepts.map((d) => {
-                const slot = nextFreeSlots(bookings, d, f.ends_at, { count: 1 })[0]
-                const at = slot ? splitStamp(slot.starts_at) : splitStamp(f.ends_at)
-                return (
-                  <button
-                    type="button"
-                    key={d.id}
-                    style={{ '--c': d.color }}
-                    onClick={() =>
-                      save(null, (b) =>
-                        onChain({ service_id: d.id, ...at, post: slot?.post, car: b.car, client_name: b.client_name, phone: b.phone, tire_class: b.tire_class, radius: b.radius }),
-                      )
-                    }
-                  >
-                    <i />
-                    <span>
-                      + {d.name}
-                      {slot && <small>{at.date === splitStamp(f.ends_at).date ? '' : weekday(at.date) + ' '}{fromMin(at.min)}</small>}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
         {!isNew && <BookingHistory id={initial.id} depts={allDepts} />}
         {error && !conflict && <div className="err">{error}</div>}
 

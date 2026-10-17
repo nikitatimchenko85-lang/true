@@ -348,6 +348,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .tagbar button.on { background: var(--accent); color: var(--accent-ink); }
 .presets button.on { background: var(--ink); color: var(--accent); }
 /* Записать дальше — допродажа, выделена */
+.upsell .buttons button { flex: 1; }
 .chain {
   display: grid; gap: 6px; padding: 16px; border-radius: 22px;
   background: color-mix(in srgb, var(--accent) 22%, var(--field)); box-shadow: inset 0 0 0 2px var(--accent);
