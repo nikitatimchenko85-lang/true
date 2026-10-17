@@ -22,8 +22,12 @@ export default function Login() {
 
   return (
     <div className="center">
-      <form className="card login" onSubmit={submit}>
-        <h2>Вход для сотрудников</h2>
+      <form className="login" onSubmit={submit}>
+        <div className="mark">D</div>
+        <h1 className="greet">
+          Вход для<br />
+          сотрудников
+        </h1>
         <label>
           Email
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />

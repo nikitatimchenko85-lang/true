@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { store } from './store.js'
-import { addDays, dateKey, humanDate, parseDate, stamp, today, weekday } from './lib.js'
+import { addDays, dateKey, humanDate, isBlocking, parseDate, stamp, today, weekday } from './lib.js'
+import Icon from './components/Icon.jsx'
 import Login from './components/Login.jsx'
 import DayGrid from './components/DayGrid.jsx'
 import DayList from './components/DayList.jsx'
@@ -96,11 +97,16 @@ function Main({ session }) {
   if (!settings) return <div className="center muted">{error || 'Загрузка…'}</div>
 
   const days = Array.from({ length: 7 }, (_, i) => addDays(week, i))
-  const countFor = (d) => {
+  const onDay = (d) => {
     const from = stamp(d, 0)
     const to = stamp(addDays(d, 1), 0)
-    return bookings.filter((b) => b.starts_at < to && b.ends_at > from && b.status !== 'cancelled').length
+    return bookings.filter((b) => b.starts_at < to && b.ends_at > from && isBlocking(b))
   }
+  const dayBookings = onDay(date)
+  const inWork = dayBookings.filter((b) => b.status === 'in_progress').length
+  const revenue = dayBookings
+    .filter((b) => b.starts_at.slice(0, 10) === date)
+    .reduce((sum, b) => sum + (Number(b.price) || 0), 0)
 
   const openNew = (preset = {}) =>
     setEditing({
@@ -110,43 +116,96 @@ function Main({ session }) {
       min: preset.min ?? Math.max(settings.open_min, nextSlot(settings, date)),
     })
 
+  const nav = [
+    { key: 'today', icon: 'home', label: 'Сегодня', act: () => setDate(today()) },
+    { key: 'grid', icon: 'grid', label: 'Сетка', on: view === 'grid', act: () => setView('grid') },
+    { key: 'list', icon: 'list', label: 'Список', on: view === 'list', act: () => setView('list') },
+    { key: 'search', icon: 'search', label: 'Поиск', act: () => setShowSearch(true) },
+    { key: 'settings', icon: 'settings', label: 'Настройки', act: () => setShowSettings(true) },
+  ]
+  const name = me || (store.mode === 'supabase' ? session.user?.email?.split('@')[0] : '')
+
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">{settings.company}</div>
-        <div className="datenav">
-          <button onClick={() => setDate(addDays(date, -1))} aria-label="Предыдущий день">‹</button>
-          <button className={date === today() ? 'active' : ''} onClick={() => setDate(today())}>
-            Сегодня
-          </button>
-          <button onClick={() => setDate(addDays(date, 1))} aria-label="Следующий день">›</button>
-          <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
+        <div className="logo">
+          <span className="mark">{(settings.company || 'D')[0]}</span>
+          {settings.company}
         </div>
-        <div className="actions">
-          <button onClick={() => setShowSearch(true)} title="Поиск клиента">🔍 Поиск</button>
-          <button onClick={() => setShowSettings(true)} title="Настройки">⚙️</button>
+        <nav className="iconnav">
+          {nav.map((n) => (
+            <button key={n.key} className={`round ${n.on ? 'on' : ''}`} onClick={n.act} title={n.label} aria-label={n.label}>
+              <Icon name={n.icon} />
+            </button>
+          ))}
           {store.mode === 'supabase' && (
-            <button onClick={() => store.signOut()} title={session.user?.email}>
-              Выйти
+            <button className="round" onClick={() => store.signOut()} title={`Выйти (${session.user?.email})`} aria-label="Выйти">
+              <Icon name="logout" />
             </button>
           )}
-        </div>
+        </nav>
       </header>
 
       {store.mode === 'local' && (
         <div className="banner">
-          Демо-режим: записи сохраняются только в этом браузере. Чтобы у всех сотрудников была общая база,
-          подключите Supabase (см. README).
+          Демо-режим: записи сохраняются только в этом браузере. Для общей базы подключите Supabase (см. README).
         </div>
       )}
       {error && <div className="banner error">{error}</div>}
 
+      <section className="hero">
+        <h1 className="greet">
+          {greeting()},<br />
+          {name || 'команда'}
+        </h1>
+        <button className="avatar" onClick={() => setShowSettings(true)} title="Ваше имя — в настройках">
+          {(name || '?').slice(0, 1).toUpperCase()}
+        </button>
+      </section>
+
+      <section className="tiles">
+        <button className="tile lime cta" onClick={() => openNew()}>
+          <span>
+            <b>Записать клиента</b>
+            <small>{inWork ? `Сейчас в работе: ${inWork}` : 'Выберите услугу и время'}</small>
+          </span>
+          <span className="go">
+            <Icon name="arrow" />
+          </span>
+        </button>
+        <div className="tile grey">
+          <b>{dayBookings.length}</b>
+          <small>{plural(dayBookings.length, 'запись', 'записи', 'записей')} на день</small>
+        </div>
+        <div className="tile black">
+          <b>
+            <span className="star">★</span> {revenue.toLocaleString('ru-RU')} ₽
+          </b>
+          <small>по записям дня</small>
+        </div>
+      </section>
+
+      <section className="daybar">
+        <h2>
+          {weekday(date)}, {humanDate(date)}
+        </h2>
+        <div className="daynav">
+          <button className="round sm" onClick={() => setDate(addDays(date, -1))} aria-label="Предыдущий день">
+            <Icon name="left" />
+          </button>
+          <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} aria-label="Дата" />
+          <button className="round sm" onClick={() => setDate(addDays(date, 1))} aria-label="Следующий день">
+            <Icon name="right" />
+          </button>
+        </div>
+      </section>
+
       <nav className="week">
-        <button className="weekarrow" onClick={() => setDate(addDays(date, -7))} aria-label="Неделя назад">
-          «
+        <button className="round sm" onClick={() => setDate(addDays(date, -7))} aria-label="Неделя назад">
+          <Icon name="left" />
         </button>
         {days.map((d) => {
-          const n = countFor(d)
+          const n = onDay(d).length
           return (
             <button
               key={d}
@@ -155,42 +214,27 @@ function Main({ session }) {
             >
               <span className="wd">{weekday(d)}</span>
               <span className="dn">{parseDate(d).getDate()}</span>
-              <span className="cnt">{n ? n : ''}</span>
+              <span className="cnt">{n || ''}</span>
             </button>
           )
         })}
-        <button className="weekarrow" onClick={() => setDate(addDays(date, 7))} aria-label="Неделя вперёд">
-          »
+        <button className="round sm" onClick={() => setDate(addDays(date, 7))} aria-label="Неделя вперёд">
+          <Icon name="right" />
         </button>
       </nav>
 
-      <div className="toolbar">
-        <h1>
-          {weekday(date)}, {humanDate(date)}
-        </h1>
-        <div className="chips">
-          {activeServices.map((s) => (
-            <button
-              key={s.id}
-              className={`chip ${hidden.has(s.id) ? 'off' : ''}`}
-              style={{ '--c': s.color }}
-              onClick={() => toggleService(s.id)}
-            >
-              {s.name}
-            </button>
-          ))}
-        </div>
-        <div className="seg">
-          <button className={view === 'grid' ? 'on' : ''} onClick={() => setView('grid')}>
-            Сетка
+      <div className="chips">
+        {activeServices.map((s) => (
+          <button
+            key={s.id}
+            className={`chip ${hidden.has(s.id) ? 'off' : ''}`}
+            style={{ '--c': s.color }}
+            onClick={() => toggleService(s.id)}
+          >
+            <i />
+            {s.name}
           </button>
-          <button className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}>
-            Список
-          </button>
-        </div>
-        <button className="primary" onClick={() => openNew()}>
-          + Записать
-        </button>
+        ))}
       </div>
 
       <main>
@@ -215,6 +259,14 @@ function Main({ session }) {
           />
         )}
       </main>
+
+      <nav className="bottomnav">
+        {nav.map((n) => (
+          <button key={n.key} className={`round ${n.on ? 'on' : ''}`} onClick={n.act} aria-label={n.label}>
+            <Icon name={n.icon} />
+          </button>
+        ))}
+      </nav>
 
       {editing && (
         <BookingModal
@@ -261,6 +313,22 @@ function Main({ session }) {
       )}
     </div>
   )
+}
+
+function greeting() {
+  const h = new Date().getHours()
+  if (h >= 5 && h < 12) return 'Доброе утро'
+  if (h >= 12 && h < 17) return 'Добрый день'
+  if (h >= 17 && h < 23) return 'Добрый вечер'
+  return 'Доброй ночи'
+}
+
+function plural(n, one, few, many) {
+  const m10 = n % 10
+  const m100 = n % 100
+  if (m10 === 1 && m100 !== 11) return one
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few
+  return many
 }
 
 // Ближайший слот после текущего времени (для сегодняшнего дня)
