@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DEFAULT_CONFIG, bannedBrand } from '../src/lib.js'
 import { parseCsv, rowsToBookings } from '../src/importCsv.js'
-import { SERVICES, unitPrice } from '../src/prices.js'
+import { DEFAULT_PRICELISTS, unitPrice } from '../src/prices.js'
 
 const tires = DEFAULT_CONFIG.departments.find((d) => d.id === 'tires')
 
@@ -39,6 +39,7 @@ test('импорт CSV из «Заявки Шиномонтаж»', () => {
 })
 
 test('калькулятор: цены и подсказки', () => {
+  const SERVICES = DEFAULT_PRICELISTS.tires
   const complex = SERVICES[0]
   assert.deepEqual(unitPrice(complex, 'IV', 'R17'), { price: 4000 })
   assert.deepEqual(unitPrice(complex, '', 'R17'), { hint: 'выберите класс' })

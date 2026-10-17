@@ -224,3 +224,36 @@ export function workMinutes(start, end, settings) {
   }
   return total
 }
+
+// Ближайшие свободные окна подразделения начиная с from: на каждое время — первый свободный пост.
+// duration — длительность (иначе стандартная для поста), car — чтобы не предлагать посты с запретом марки.
+export function nextFreeSlots(bookings, dept, from, { duration, count = 6, days = 7, id, car } = {}) {
+  const out = []
+  let { date, min } = splitStamp(from)
+  min = Math.max(dept.open_min, Math.ceil(min / dept.step) * dept.step)
+  for (let d = 0; d < days && out.length < count; d++) {
+    for (let m = min; m < dept.close_min && out.length < count; m += dept.step) {
+      const starts_at = stamp(date, m)
+      for (let p = 1; p <= dept.posts.length; p++) {
+        const post = dept.posts[p - 1]
+        if (bannedBrand(post, car)) continue
+        const ends_at = computeEnd(starts_at, duration || post.duration, dept)
+        if (!findConflict(bookings, { id, service_id: dept.id, post: p, starts_at, ends_at, status: 'planned' })) {
+          out.push({ post: p, starts_at, ends_at })
+          break
+        }
+      }
+    }
+    date = addDays(date, 1)
+    min = dept.open_min
+  }
+  return out
+}
+
+export function plural(n, one, few, many) {
+  const m10 = n % 10
+  const m100 = n % 100
+  if (m10 === 1 && m100 !== 11) return one
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few
+  return many
+}

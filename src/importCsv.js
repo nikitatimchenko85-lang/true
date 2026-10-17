@@ -3,7 +3,11 @@
 // G комментарий, H дата записи, I время, J пост, K администратор, L длительность, M статус.
 import { computeEnd, stamp, toMin } from './lib.js'
 
+// Разделитель — запятая (Google Таблицы) или точка с запятой (Excel), определяется по первой строке
 export function parseCsv(text) {
+  text = text.replace(/^\ufeff/, '')
+  const first = text.split(/\r?\n/, 1)[0].replace(/"[^"]*"/g, '')
+  const sep = (first.match(/;/g) || []).length > (first.match(/,/g) || []).length ? ';' : ','
   const rows = []
   let row = []
   let cell = ''
@@ -17,7 +21,7 @@ export function parseCsv(text) {
       } else if (ch === '"') quoted = false
       else cell += ch
     } else if (ch === '"') quoted = true
-    else if (ch === ',') {
+    else if (ch === sep) {
       row.push(cell)
       cell = ''
     } else if (ch === '\n' || ch === '\r') {
