@@ -1,10 +1,17 @@
 // Слой данных. Сейчас всё хранится в браузере (localStorage).
 // Когда приложение переедет на хостинг TRUE, сюда подключается сервер: достаточно реализовать те же методы
-// (listBookings, searchBookings, saveBooking, importBookings, getConfig, saveConfig, addLog, listLog, subscribe)
+// (listBookings, searchBookings, saveBooking, importBookings, getConfig, saveConfig, addLog, listLog, listStorage, saveStorage, subscribe)
 // поверх его API — остальное приложение менять не нужно.
 import { findConflict, uid } from './lib.js'
 import { withDefaults } from './config.js'
 import { bookingEntry, configNote } from './journal.js'
+import { cellFree, nextNum, storageEntry } from './storage.js'
+
+export class CellBusyError extends Error {
+  constructor() {
+    super('Эта ячейка уже занята — выберите другую')
+  }
+}
 
 export class ConflictError extends Error {
   constructor(booking) {
@@ -23,7 +30,7 @@ const configEntry = (by, prev, next, action = 'settings', note) =>
   by && { user_name: by, action, note: note ?? configNote(prev, next) }
 
 function createLocalStore() {
-  const KEY = { bookings: 'db.bookings', config: 'db.config', log: 'db.log' }
+  const KEY = { bookings: 'db.bookings', config: 'db.config', log: 'db.log', storage: 'db.storage' }
   const read = (k, fallback) => {
     try {
       const v = JSON.parse(localStorage.getItem(k))
@@ -101,6 +108,29 @@ function createLocalStore() {
       write(KEY.bookings, all)
       if (by && added) await this.addLog({ user_name: by, action: 'import', note: `${added} шт.` })
       return { added, skipped }
+    },
+    async listStorage() {
+      return read(KEY.storage, [])
+    },
+    // Комплект на хранении. action для журнала: storage_in, storage_out, storage_move, storage_edit
+    async saveStorage(s, by, action, warehouses) {
+      const all = read(KEY.storage, [])
+      if (s.status !== 'issued') {
+        const w = warehouses.find((x) => x.id === s.warehouse_id)
+        const r = w?.racks.find((x) => x.id === s.rack_id)
+        if (!r || !cellFree(all, w, r, s.section, s.level, s.id)) throw new CellBusyError()
+      }
+      const now = new Date().toISOString()
+      let saved
+      if (s.id) {
+        saved = { ...all.find((x) => x.id === s.id), ...s, updated_at: now }
+        write(KEY.storage, all.map((x) => (x.id === s.id ? saved : x)))
+      } else {
+        saved = { ...s, id: uid(), num: nextNum(all), created_at: now, updated_at: now }
+        write(KEY.storage, [...all, saved])
+      }
+      if (by && action) await this.addLog(storageEntry(by, action, saved, warehouses))
+      return saved
     },
     async getConfig() {
       return withDefaults(read(KEY.config, null))
