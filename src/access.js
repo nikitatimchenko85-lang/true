@@ -8,6 +8,7 @@ export const PERMS = [
   ['price', 'Менять цену в заявке'],
   ['reports', 'Аналитика и отчёты'],
   ['export', 'Выгрузки в Excel'],
+  ['storage', 'Хранение шин: приём, выдача, бирки'],
   ['journal', 'Журнал действий'],
   ['pricelists', 'Редактировать прайс-листы'],
   ['settings', 'Подразделения, посты, импорт'],
@@ -16,7 +17,7 @@ export const PERMS = [
 
 export const ROLES = {
   owner: { label: 'Руководитель', short: 'Руков.', perms: PERMS.map(([k]) => k) },
-  admin: { label: 'Администратор', short: 'Админ.', perms: ['book', 'status', 'move', 'price', 'reports', 'export'] },
+  admin: { label: 'Администратор', short: 'Админ.', perms: ['book', 'status', 'move', 'price', 'reports', 'export', 'storage'] },
   master: { label: 'Мастер', short: 'Мастер', perms: ['status'] },
 }
 

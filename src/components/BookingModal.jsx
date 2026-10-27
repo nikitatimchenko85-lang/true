@@ -10,6 +10,7 @@ import { can } from '../access.js'
 import { haptic } from '../haptics.js'
 import Modal from './Modal.jsx'
 import { LogEntry } from './JournalModal.jsx'
+import { SEASONS, formatNum } from '../storage.js'
 
 const QUICK = 8 // сколько услуг из прайса показывать кнопками
 
@@ -17,7 +18,7 @@ const QUICK = 8 // сколько услуг из прайса показыва�
 // На телефоне поле не фокусируем: клавиатура закрывает форму, сотрудник сам нажмёт в поле
 const finePointer = () => typeof window !== 'undefined' && window.matchMedia?.('(pointer: fine)').matches
 
-export default function BookingModal({ initial, depts, allDepts, bookings, user, users = [], pricelists, onClose, onSaved }) {
+export default function BookingModal({ initial, depts, allDepts, bookings, user, users = [], pricelists, storedSets = [], onOpenSet, onStore, onClose, onSaved }) {
   const isNew = !initial.id
   const deptOf = (id) => allDepts.find((d) => d.id === id)
   const canEdit = can(user, 'book')
@@ -248,7 +249,19 @@ export default function BookingModal({ initial, depts, allDepts, bookings, user,
   const quick = list.slice(0, QUICK)
   const more = list.slice(QUICK)
 
-  if (!editMode) return <BookingSummary b={initial} dept={deptOf(initial.service_id)} canChange={canStatus} onEdit={() => setEditMode(true)} onClose={onClose} />
+  if (!editMode)
+    return (
+      <BookingSummary
+        b={initial}
+        dept={deptOf(initial.service_id)}
+        canChange={canStatus}
+        stored={storedSets}
+        onOpenSet={onOpenSet}
+        onStore={dept.tire_fields && onStore}
+        onEdit={() => setEditMode(true)}
+        onClose={onClose}
+      />
+    )
 
   return (
     <Modal title={isNew ? 'Новая запись' : 'Запись'} onClose={onClose}>
@@ -640,7 +653,7 @@ function BookingHistory({ id, depts }) {
 }
 
 // Сводка по записи: только то, что нужно увидеть с первого взгляда
-function BookingSummary({ b, dept, canChange, onEdit, onClose }) {
+function BookingSummary({ b, dept, canChange, stored, onOpenSet, onStore, onEdit, onClose }) {
   const st = STATUSES[b.status] || STATUSES.planned
   const s = splitStamp(b.starts_at)
   const e = splitStamp(b.ends_at)
@@ -693,6 +706,24 @@ function BookingSummary({ b, dept, canChange, onEdit, onClose }) {
               <b>{rub(b.total ?? linesTotal(items))}</b>
             </li>
           </ul>
+        )}
+        {(stored.length > 0 || onStore) && (
+          <div className="summary-storage">
+            {stored.map((s) => (
+              <button type="button" key={s.id} className="stored-set" style={{ '--s': SEASONS[s.season]?.color }} onClick={() => onOpenSet(s)}>
+                <i>{SEASONS[s.season]?.short}</i>
+                <span>
+                  На хранении № {formatNum(s.num)} · {SEASONS[s.season]?.label}
+                  <small>{[s.size, s.qty && `${s.qty} шт.`].filter(Boolean).join(' · ')}</small>
+                </span>
+              </button>
+            ))}
+            {onStore && (
+              <button type="button" onClick={() => onStore(b)}>
+                + Принять шины на хранение
+              </button>
+            )}
+          </div>
         )}
         <div className="buttons">
           {canChange && (

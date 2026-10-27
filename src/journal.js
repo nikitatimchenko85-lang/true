@@ -12,12 +12,17 @@ export const ACTIONS = {
   pin: 'Новый PIN-код',
   import: 'Импорт записей',
   login: 'Вход',
+  storage_in: 'Приём на хранение',
+  storage_out: 'Выдача с хранения',
+  storage_move: 'Перемещение на складе',
+  storage_edit: 'Изменение хранения',
 }
 
 // Группы для фильтра в журнале
 export const ACTION_GROUPS = [
   ['all', 'Все', null],
   ['bookings', 'Записи', ['create', 'update', 'move', 'status', 'import']],
+  ['storage', 'Хранение', ['storage_in', 'storage_out', 'storage_move', 'storage_edit']],
   ['settings', 'Настройки', ['settings', 'pin']],
   ['login', 'Входы', ['login']],
 ]
@@ -46,6 +51,7 @@ const CONFIG_SECTIONS = {
   users: 'пользователи и права',
   pricelists: 'прайс-листы',
   roles: 'права ролей',
+  warehouses: 'склады',
   lock_min: 'автоблокировка',
   company: 'название',
 }

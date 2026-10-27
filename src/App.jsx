@@ -18,6 +18,10 @@ import ReportsModal from './components/ReportsModal.jsx'
 import JournalModal from './components/JournalModal.jsx'
 import VersionsModal from './components/VersionsModal.jsx'
 import UpsellModal from './components/UpsellModal.jsx'
+import StorageScreen from './components/StorageScreen.jsx'
+import StorageSetModal from './components/StorageSetModal.jsx'
+import WarehousesModal from './components/WarehousesModal.jsx'
+import { formatNum, setsForClient } from './storage.js'
 import { CHANGELOG, VERSION } from './changelog.js'
 
 const pref = (k, fallback) => {
@@ -43,6 +47,7 @@ export default function App() {
   const [date, setDate] = useState(today())
   const [config, setConfig] = useState(null)
   const [bookings, setBookings] = useState([])
+  const [storage, setStorage] = useState([]) // комплекты шин на хранении
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
   const [seenVersion, setSeenVersion] = useState(() => pref('seen.version', ''))
@@ -50,7 +55,12 @@ export default function App() {
   const [deptId, setDeptId] = useState(() => pref('dept', 'tires'))
   const [editing, setEditing] = useState(null)
   const [upsell, setUpsell] = useState(null) // новая запись, после которой предлагаем следующую услугу
-  const [panel, setPanel] = useState(null) // settings | search | calc | reports | journal | versions
+  const [panel, setPanel] = useState(null) // settings | search | calc | reports | journal | versions | warehouses
+  const [screen, setScreen] = useState(() => pref('screen', 'book')) // book — запись, storage — хранение шин
+  const [whId, setWhId] = useState(() => pref('warehouse', ''))
+  const [storing, setStoring] = useState(null) // открытый комплект хранения или заготовка нового
+  // ?s=0012 — ссылка из QR на бирке: открыть этот комплект
+  const [qrNum, setQrNum] = useState(() => new URLSearchParams(location.search).get('s'))
   // Кто работает: вход по PIN, экран блокируется после простоя
   const [userId, setUserId] = useState(() => pref('pin.user', ''))
   const [unlocked, setUnlocked] = useState(() => Date.now() < Number(pref('pin.until', 0)))
@@ -61,9 +71,10 @@ export default function App() {
 
   const load = useCallback(async () => {
     try {
-      const [cfg, bk] = await Promise.all([store.getConfig(), store.listBookings(range.from, range.to)])
+      const [cfg, bk, st] = await Promise.all([store.getConfig(), store.listBookings(range.from, range.to), store.listStorage()])
       setConfig(cfg)
       setBookings(bk)
+      setStorage(st)
       setError('')
     } catch (e) {
       setError('Не удалось загрузить данные: ' + (e.message || e))
@@ -77,6 +88,8 @@ export default function App() {
 
   useEffect(() => setPref('view', view), [view])
   useEffect(() => setPref('dept', deptId), [deptId])
+  useEffect(() => setPref('screen', screen), [screen])
+  useEffect(() => setPref('warehouse', whId), [whId])
   const lockMin = config?.lock_min ?? 30
   useEffect(() => {
     if (!unlocked) return
@@ -134,11 +147,29 @@ export default function App() {
     setUnlocked(false)
     setPanel(null)
     setEditing(null)
+    setStoring(null)
   }
   const canBook = can(user, 'book')
   const canSettings = ['settings', 'users', 'pricelists'].some((p) => can(user, p))
   const canReports = can(user, 'reports') || can(user, 'export')
   const canJournal = can(user, 'journal')
+  const canStorage = can(user, 'storage')
+  const canWarehouses = can(user, 'settings')
+  // QR с бирки: после входа открываем комплект, ссылку из адреса убираем
+  if (qrNum && storage.length) {
+    const s = storage.find((x) => formatNum(x.num) === qrNum.padStart(4, '0'))
+    setQrNum(null)
+    history.replaceState(null, '', location.pathname)
+    if (s) {
+      setScreen('storage')
+      setStoring(s)
+    }
+  }
+  const openStorage = (s) => {
+    setScreen('storage')
+    setEditing(null)
+    setStoring(s)
+  }
   const newVersion = seenVersion !== VERSION
   const markSeen = () => {
     setPref('seen.version', VERSION)
@@ -218,8 +249,9 @@ export default function App() {
 
   const nav = [
     { key: 'today', icon: 'home', label: 'Сегодня', act: () => setDate(today()), desktop: true },
-    { key: 'grid', icon: 'grid', label: 'Сетка', on: view === 'grid', act: () => setView('grid') },
-    { key: 'list', icon: 'list', label: 'Список', on: view === 'list', act: () => setView('list') },
+    { key: 'grid', icon: 'grid', label: 'Сетка', on: screen === 'book' && view === 'grid', act: () => (setScreen('book'), setView('grid')) },
+    { key: 'list', icon: 'list', label: 'Список', on: screen === 'book' && view === 'list', act: () => (setScreen('book'), setView('list')) },
+    { key: 'storage', icon: 'box', label: 'Хранение шин', on: screen === 'storage', act: () => setScreen('storage'), desktop: true },
     { key: 'search', icon: 'search', label: 'Поиск', act: () => setPanel('search') },
     { key: 'calc', icon: 'calc', label: 'Калькулятор цен', act: () => setPanel('calc') },
     canReports && { key: 'reports', icon: 'chart', label: 'Отчёты и выгрузки', act: () => setPanel('reports') },
@@ -268,122 +300,147 @@ export default function App() {
         </button>
       </section>
 
-      <section className="tiles">
-        {canBook ? (
-          <button className="tile accent cta" onClick={() => openNew()}>
-            <span>
-              <b>Записать</b>
-              <small>{depts.length === 1 ? `${depts[0].name} · ближайшее свободное время` : 'в любое подразделение'}</small>
-            </span>
-            <span className="go">
-              <Icon name="plus" />
-            </span>
-          </button>
-        ) : (
-          <div className="tile accent">
-            <b>{ROLES[user.role]?.label}</b>
-            <small>просмотр расписания и статусы</small>
-          </div>
-        )}
-        <div className="tile grey">
-          <b>{live.length}</b>
-          <small>
-            {plural(live.length, 'запись', 'записи', 'записей')}
-            {noShow ? ` · не приехали: ${noShow}` : ''}
-          </small>
-        </div>
-        <div className="tile black">
-          {date === today() ? (
-            <>
-              <b>
-                <span className="accent-text">{totalPosts - busyNow}</span> / {totalPosts}
-              </b>
-              <small>постов свободно сейчас</small>
-            </>
-          ) : (
-            <>
-              <b>{totalPosts}</b>
-              <small>{plural(totalPosts, 'пост', 'поста', 'постов')}</small>
-            </>
-          )}
-        </div>
-      </section>
-
-      <nav className="tabs">
-        {active.length > 1 && (
-          <button className={deptId === 'all' ? 'on' : ''} onClick={() => setDeptId('all')}>
-            Все
-          </button>
-        )}
-        {active.map((d) => (
-          <button
-            key={d.id}
-            className={deptId !== 'all' && depts[0].id === d.id ? 'on' : ''}
-            style={{ '--c': d.color }}
-            onClick={() => setDeptId(d.id)}
-          >
-            <i />
-            {d.name}
-          </button>
-        ))}
+      <nav className="screens">
+        <button className={screen === 'book' ? 'on' : ''} onClick={() => setScreen('book')}>
+          Запись
+        </button>
+        <button className={screen === 'storage' ? 'on' : ''} onClick={() => setScreen('storage')}>
+          Хранение шин
+        </button>
       </nav>
 
-      <section className="daybar">
-        <h2>
-          {weekday(date)}, {humanDate(date)}
-        </h2>
-        <div className="daynav">
-          {date !== today() && (
-            <button className="today-btn" onClick={() => setDate(today())}>
-              Сегодня
+      {screen === 'storage' ? (
+        <StorageScreen
+          config={config}
+          sets={storage}
+          canEdit={canStorage}
+          canSetup={canWarehouses}
+          whId={whId}
+          setWhId={setWhId}
+          onOpen={setStoring}
+          onNew={(preset) => setStoring(preset)}
+          onSetup={() => setPanel('warehouses')}
+        />
+      ) : (
+        <>
+        <section className="tiles">
+          {canBook ? (
+            <button className="tile accent cta" onClick={() => openNew()}>
+              <span>
+                <b>Записать</b>
+                <small>{depts.length === 1 ? `${depts[0].name} · ближайшее свободное время` : 'в любое подразделение'}</small>
+              </span>
+              <span className="go">
+                <Icon name="plus" />
+              </span>
+            </button>
+          ) : (
+            <div className="tile accent">
+              <b>{ROLES[user.role]?.label}</b>
+              <small>просмотр расписания и статусы</small>
+            </div>
+          )}
+          <div className="tile grey">
+            <b>{live.length}</b>
+            <small>
+              {plural(live.length, 'запись', 'записи', 'записей')}
+              {noShow ? ` · не приехали: ${noShow}` : ''}
+            </small>
+          </div>
+          <div className="tile black">
+            {date === today() ? (
+              <>
+                <b>
+                  <span className="accent-text">{totalPosts - busyNow}</span> / {totalPosts}
+                </b>
+                <small>постов свободно сейчас</small>
+              </>
+            ) : (
+              <>
+                <b>{totalPosts}</b>
+                <small>{plural(totalPosts, 'пост', 'поста', 'постов')}</small>
+              </>
+            )}
+          </div>
+        </section>
+
+        <nav className="tabs">
+          {active.length > 1 && (
+            <button className={deptId === 'all' ? 'on' : ''} onClick={() => setDeptId('all')}>
+              Все
             </button>
           )}
-          <button className="round sm" onClick={() => setDate(addDays(date, -1))} aria-label="Предыдущий день">
+          {active.map((d) => (
+            <button
+              key={d.id}
+              className={deptId !== 'all' && depts[0].id === d.id ? 'on' : ''}
+              style={{ '--c': d.color }}
+              onClick={() => setDeptId(d.id)}
+            >
+              <i />
+              {d.name}
+            </button>
+          ))}
+        </nav>
+
+        <section className="daybar">
+          <h2>
+            {weekday(date)}, {humanDate(date)}
+          </h2>
+          <div className="daynav">
+            {date !== today() && (
+              <button className="today-btn" onClick={() => setDate(today())}>
+                Сегодня
+              </button>
+            )}
+            <button className="round sm" onClick={() => setDate(addDays(date, -1))} aria-label="Предыдущий день">
+              <Icon name="left" />
+            </button>
+            <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} aria-label="Дата" />
+            <button className="round sm" onClick={() => setDate(addDays(date, 1))} aria-label="Следующий день">
+              <Icon name="right" />
+            </button>
+          </div>
+        </section>
+
+        <nav className="week">
+          <button className="round sm" onClick={() => setDate(addDays(date, -7))} aria-label="Неделя назад">
             <Icon name="left" />
           </button>
-          <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} aria-label="Дата" />
-          <button className="round sm" onClick={() => setDate(addDays(date, 1))} aria-label="Следующий день">
+          {days.map((d) => {
+            const n = onDay(d).filter(isBlocking).length
+            return (
+              <button key={d} className={`day ${d === date ? 'selected' : ''} ${d === today() ? 'today' : ''}`} onClick={() => setDate(d)}>
+                <span className="wd">{weekday(d)}</span>
+                <span className="dn">{parseDate(d).getDate()}</span>
+                <span className="cnt">{n || ''}</span>
+              </button>
+            )
+          })}
+          <button className="round sm" onClick={() => setDate(addDays(date, 7))} aria-label="Неделя вперёд">
             <Icon name="right" />
           </button>
-        </div>
-      </section>
+        </nav>
 
-      <nav className="week">
-        <button className="round sm" onClick={() => setDate(addDays(date, -7))} aria-label="Неделя назад">
-          <Icon name="left" />
-        </button>
-        {days.map((d) => {
-          const n = onDay(d).filter(isBlocking).length
-          return (
-            <button key={d} className={`day ${d === date ? 'selected' : ''} ${d === today() ? 'today' : ''}`} onClick={() => setDate(d)}>
-              <span className="wd">{weekday(d)}</span>
-              <span className="dn">{parseDate(d).getDate()}</span>
-              <span className="cnt">{n || ''}</span>
-            </button>
-          )
-        })}
-        <button className="round sm" onClick={() => setDate(addDays(date, 7))} aria-label="Неделя вперёд">
-          <Icon name="right" />
-        </button>
-      </nav>
-
-      <main>
-        {view === 'grid' ? (
-          <DayGrid
-            date={date}
-            depts={depts}
-            bookings={bookings}
-            view={gridView}
-            onCreate={openNew}
-            onOpen={(b) => setEditing(b)}
-            onMove={move}
-            canMove={(b) => can(user, 'move') && isBlocking(b)}
-            onPast={() => (haptic('error'), setToast('Это время уже прошло — выберите время позже'))}
-          />
-        ) : (
-          <DayList date={date} depts={depts} bookings={bookings} view={gridView} onOpen={(b) => setEditing(b)} onCreate={openNew} />
-        )}
-      </main>
+        <main>
+          {view === 'grid' ? (
+            <DayGrid
+              date={date}
+              depts={depts}
+              bookings={bookings}
+              view={gridView}
+              onCreate={openNew}
+              onOpen={(b) => setEditing(b)}
+              onMove={move}
+              canMove={(b) => can(user, 'move') && isBlocking(b)}
+              onPast={() => (haptic('error'), setToast('Это время уже прошло — выберите время позже'))}
+            />
+          ) : (
+            <DayList date={date} depts={depts} bookings={bookings} view={gridView} onOpen={(b) => setEditing(b)} onCreate={openNew} />
+          )}
+        </main>
+        </>
+      )}
 
       <footer className="appfoot">
         {canJournal && (
@@ -418,6 +475,9 @@ export default function App() {
           user={user}
           users={config.users}
           pricelists={config.pricelists}
+          storedSets={setsForClient(storage, editing)}
+          onOpenSet={openStorage}
+          onStore={canStorage && ((b) => openStorage({ car: b.car, client_name: b.client_name, phone: b.phone }))}
           onClose={() => setEditing(null)}
           onSaved={(b, created) => {
             haptic('success')
@@ -478,6 +538,33 @@ export default function App() {
       )}
       {panel === 'journal' && <JournalModal depts={allDepts} onClose={() => setPanel(null)} />}
       {panel === 'versions' && <VersionsModal onClose={() => setPanel(null)} />}
+      {panel === 'warehouses' && (
+        <WarehousesModal
+          config={config}
+          user={user}
+          sets={storage}
+          onClose={() => setPanel(null)}
+          onSaved={() => {
+            setPanel(null)
+            load()
+          }}
+        />
+      )}
+      {storing && (
+        <StorageSetModal
+          key={storing.id || 'new'}
+          initial={storing}
+          config={config}
+          user={user}
+          sets={storage}
+          canEdit={canStorage}
+          onClose={() => setStoring(null)}
+          onSaved={load}
+          onAgain={(s) =>
+            setStoring({ client_name: s.client_name, phone: s.phone, car: s.car, brand: s.brand, size: s.size, qty: s.qty, rims: s.rims, season: s.season })
+          }
+        />
+      )}
       {panel === 'reports' && (
         <ReportsModal
           depts={active}
