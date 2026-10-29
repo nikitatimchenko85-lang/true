@@ -3,7 +3,8 @@ import { store } from '../store.js'
 import { RADII, fromMin, uid, worksFor } from '../lib.js'
 import { PERMS, ROLES, can, rolePerms } from '../access.js'
 import { DEFAULT_PRICELISTS, PRICE_CLASSES } from '../prices.js'
-import { download, parsePricelist, pricelistCsv } from '../exports.js'
+import { backupJson, download, parseBackup, parsePricelist, pricelistCsv } from '../exports.js'
+import { VERSION } from '../changelog.js'
 import { parseCsv, rowsToBookings } from '../importCsv.js'
 import Modal from './Modal.jsx'
 
@@ -16,7 +17,7 @@ const TABS = [
   ['depts', 'Подразделения', 'settings'],
   ['users', 'Пользователи', 'users'],
   ['prices', 'Прайс-листы', 'pricelists'],
-  ['import', 'Импорт', 'settings'],
+  ['import', 'Данные', 'settings'],
 ]
 
 export default function SettingsModal({ config, user, onClose, onSaved }) {
@@ -531,6 +532,7 @@ function ImportSection({ config, user }) {
 
   return (
     <div className="form">
+      <BackupSection user={user} />
       <h3>Загрузить записи из Google Таблицы</h3>
       <p className="muted small">
         Откройте лист «Заявки Шиномонтаж» → Файл → Скачать → CSV, затем выберите файл здесь. Записи на занятое время
@@ -560,5 +562,77 @@ function ImportSection({ config, user }) {
         </div>
       )}
     </div>
+  )
+}
+
+/* ---------- Резервная копия ---------- */
+
+// Перенос на другой адрес или компьютер: скачать файл здесь и восстановить там
+function BackupSection({ user }) {
+  const [file, setFile] = useState(null) // разобранная копия, ждёт подтверждения
+  const [msg, setMsg] = useState(null)
+  const [busy, setBusy] = useState(false)
+
+  const save = async () => {
+    const data = await store.exportAll()
+    download(`true-backup-${new Date().toISOString().slice(0, 10)}.json`, backupJson(data, VERSION), 'application/json')
+    setMsg({ ok: `Скачано: записей ${data.bookings.length}, комплектов на хранении ${data.storage.length}.` })
+  }
+  const onFile = async (e) => {
+    const f = e.target.files[0]
+    e.target.value = ''
+    if (!f) return
+    setMsg(null)
+    try {
+      setFile(parseBackup(await f.text()))
+    } catch (err) {
+      setFile(null)
+      setMsg({ error: err.message })
+    }
+  }
+  const restore = async () => {
+    setBusy(true)
+    try {
+      await store.importAll(file, user.name)
+      setMsg({ ok: 'Данные восстановлены.' })
+      setFile(null)
+    } catch (err) {
+      setMsg({ error: 'Ошибка: ' + err.message })
+    }
+    setBusy(false)
+  }
+
+  return (
+    <>
+      <h3>Резервная копия</h3>
+      <p className="muted small">
+        Все записи, настройки, пользователи, журнал и хранение шин одним файлом. Данные хранятся в браузере отдельно для
+        каждого адреса сайта: чтобы перенести их на новый адрес, скачайте копию здесь и восстановите её там.
+      </p>
+      <div className="buttons">
+        <button type="button" className="primary" onClick={save}>
+          Скачать копию
+        </button>
+        <label className="file-btn">
+          Восстановить из файла
+          <input type="file" accept=".json,application/json" onChange={onFile} />
+        </label>
+      </div>
+      {file && (
+        <div className="warn">
+          В копии от {file.exported_at ? new Date(file.exported_at).toLocaleString('ru-RU') : '—'}: записей {file.bookings.length}, комплектов на
+          хранении {file.storage.length}. Текущие данные в этом браузере будут заменены.
+          <div className="buttons">
+            <button type="button" onClick={() => setFile(null)}>
+              Отмена
+            </button>
+            <button type="button" className="primary" disabled={busy} onClick={restore}>
+              Заменить данные
+            </button>
+          </div>
+        </div>
+      )}
+      {msg && <div className={msg.error ? 'err' : 'hint'}>{msg.error || msg.ok}</div>}
+    </>
   )
 }

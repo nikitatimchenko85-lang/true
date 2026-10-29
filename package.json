@@ -1,6 +1,6 @@
 {
   "name": "detailing-booking",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Запись клиентов для детейлинг-центра",
   "scripts": {
     "dev": "vite",

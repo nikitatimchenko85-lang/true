@@ -114,8 +114,23 @@ export function parsePricelist(rows) {
   return { list: [...byKey.values()], errors }
 }
 
-export function download(filename, text) {
-  const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }))
+// Файл резервной копии: все записи, настройки, журнал и хранение шин
+export const BACKUP_APP = 'true-detailing'
+export const backupJson = (data, version) => JSON.stringify({ app: BACKUP_APP, version, exported_at: new Date().toISOString(), ...data })
+
+export function parseBackup(text) {
+  let d
+  try {
+    d = JSON.parse(text)
+  } catch {
+    throw new Error('Это не файл резервной копии')
+  }
+  if (d?.app !== BACKUP_APP || !Array.isArray(d.bookings)) throw new Error('Это не резервная копия TRUE Запись')
+  return { bookings: d.bookings, config: d.config ?? null, log: Array.isArray(d.log) ? d.log : [], storage: Array.isArray(d.storage) ? d.storage : [], exported_at: d.exported_at, version: d.version }
+}
+
+export function download(filename, text, type = 'text/csv;charset=utf-8') {
+  const url = URL.createObjectURL(new Blob([text], { type }))
   const a = document.createElement('a')
   a.href = url
   a.download = filename

@@ -1,6 +1,7 @@
 // Слой данных. Сейчас всё хранится в браузере (localStorage).
 // Когда приложение переедет на хостинг TRUE, сюда подключается сервер: достаточно реализовать те же методы
-// (listBookings, searchBookings, saveBooking, importBookings, getConfig, saveConfig, addLog, listLog, listStorage, saveStorage, subscribe)
+// (listBookings, searchBookings, saveBooking, importBookings, getConfig, saveConfig, addLog, listLog, listStorage, saveStorage,
+// exportAll, importAll, subscribe)
 // поверх его API — остальное приложение менять не нужно.
 import { findConflict, uid } from './lib.js'
 import { withDefaults } from './config.js'
@@ -131,6 +132,15 @@ function createLocalStore() {
       }
       if (by && action) await this.addLog(storageEntry(by, action, saved, warehouses))
       return saved
+    },
+    // Резервная копия всех данных — для переноса на другой адрес (у каждого сайта своё хранилище в браузере)
+    async exportAll() {
+      return { bookings: read(KEY.bookings, []), config: read(KEY.config, null), log: read(KEY.log, []), storage: read(KEY.storage, []) }
+    },
+    async importAll(data, by) {
+      for (const k of ['log', 'storage', 'config', 'bookings']) localStorage.setItem(KEY[k], JSON.stringify(data[k] ?? (k === 'config' ? null : [])))
+      emit()
+      if (by) await this.addLog({ user_name: by, action: 'restore', note: `записей ${data.bookings.length}, хранение ${data.storage.length}` })
     },
     async getConfig() {
       return withDefaults(read(KEY.config, null))
