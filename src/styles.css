@@ -784,3 +784,5 @@ input, textarea, select, [contenteditable] { -webkit-user-select: text; user-sel
   .label-preview { padding: 12px 0; }
   .label-preview .label { zoom: 1.3; }
 }
+.form .file-btn { position: relative; display: inline-flex; flex-direction: row; align-items: center; padding: 14px 24px; border-radius: 999px; background: var(--field); color: var(--text) !important; font-size: 15px !important; cursor: pointer; }
+.file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }

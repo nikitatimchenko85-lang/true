@@ -44,3 +44,14 @@ test('хранение: права выдаются один раз тем, кт
   const again = withDefaults({ ...cfg, roles: { admin: ['book'] } })
   assert.deepEqual(again.roles.admin, ['book'], 'снятое руководителем право не возвращается')
 })
+
+test('резервная копия: свой файл читается, чужой — нет', async () => {
+  const { backupJson, parseBackup } = await import('../src/exports.js')
+  const text = backupJson({ bookings: [{ id: 'b' }], config: { company: 'X' }, log: [], storage: [{ id: 's' }] }, '2.1')
+  const d = parseBackup(text)
+  assert.equal(d.bookings.length, 1)
+  assert.equal(d.storage.length, 1)
+  assert.equal(d.config.company, 'X')
+  assert.throws(() => parseBackup('{"bookings":[]}'), /не резервная копия/)
+  assert.throws(() => parseBackup('not json'), /не файл/)
+})

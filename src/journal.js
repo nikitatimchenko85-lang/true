@@ -12,6 +12,7 @@ export const ACTIONS = {
   pin: 'Новый PIN-код',
   import: 'Импорт записей',
   login: 'Вход',
+  restore: 'Восстановление из копии',
   storage_in: 'Приём на хранение',
   storage_out: 'Выдача с хранения',
   storage_move: 'Перемещение на складе',
@@ -23,7 +24,7 @@ export const ACTION_GROUPS = [
   ['all', 'Все', null],
   ['bookings', 'Записи', ['create', 'update', 'move', 'status', 'import']],
   ['storage', 'Хранение', ['storage_in', 'storage_out', 'storage_move', 'storage_edit']],
-  ['settings', 'Настройки', ['settings', 'pin']],
+  ['settings', 'Настройки', ['settings', 'pin', 'restore']],
   ['login', 'Входы', ['login']],
 ]
 
